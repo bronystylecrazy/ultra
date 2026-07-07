@@ -88,7 +88,7 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `ultra — the ultrastack companion
 
   ultra new <name> [--module m]   scaffold a product on the paved road
-  ultra vet [packages] [-fix]     static wiring checks (DI0001/2/3, UV0001)
+  ultra vet [packages] [-fix]     static wiring checks (DI0001/3/4/5/7/10, UV0001)
                                   before anything runs; -fix applies fixes
   ultra explain <code>            mini-lesson for a diagnostic (e.g. DI0101)
   ultra codes                     list every diagnostic code
