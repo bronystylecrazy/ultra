@@ -53,6 +53,9 @@ func run(args []string, out, errW io.Writer) int {
 	case "vet":
 		return cmdVet(args[1:], out, errW)
 
+	case "fleet":
+		return cmdFleet(args[1:], out, errW)
+
 	case "diff":
 		if len(args) != 3 {
 			fmt.Fprintln(errW, "usage: ultra diff old.graph new.graph")
@@ -90,6 +93,9 @@ func usage(w io.Writer) {
   ultra new <name> [--module m]   scaffold a product on the paved road
   ultra vet [packages] [-fix]     static wiring checks (DI0001-DI0106 graph family, UV0001)
                                   before anything runs; -fix applies fixes
+  ultra fleet status|vet [dir]    the whole fleet: versions, graph
+                                  fingerprints + drift (--save baselines),
+                                  analyzer findings across every product
   ultra explain <code>            mini-lesson for a diagnostic (e.g. DI0101)
   ultra codes                     list every diagnostic code
   ultra diff <old> <new>          semantic diff of two GraphSummary files

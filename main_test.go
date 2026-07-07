@@ -93,3 +93,37 @@ func TestVetDelegatesToBinary(t *testing.T) {
 		t.Fatalf("args must pass through: %q", out.String())
 	}
 }
+
+// Fleet discovery: products in, the framework and unrelated modules out.
+func TestDiscoverFleet(t *testing.T) {
+	root := t.TempDir()
+	write := func(dir, mod string) {
+		os.MkdirAll(filepath.Join(root, dir), 0o755)
+		os.WriteFile(filepath.Join(root, dir, "go.mod"), []byte(mod), 0o644)
+	}
+	write("speedcheck", "module github.com/acme/speedcheck\n\ngo 1.26\n\nrequire github.com/bronystylecrazy/ultrastack v0.2.0\n")
+	write("legacy", "module github.com/acme/legacy\n\ngo 1.26\n\nrequire github.com/bronystylecrazy/ultrastack v0.1.0\n")
+	write("framework", "module github.com/bronystylecrazy/ultrastack\n\ngo 1.26\n")
+	write("framework-sub", "module github.com/bronystylecrazy/ultrastack/contrib\n\ngo 1.26\n\nrequire github.com/bronystylecrazy/ultrastack v0.2.0\n")
+	write("unrelated", "module github.com/acme/other\n\ngo 1.26\n")
+	write("dev", "module github.com/acme/dev\n\ngo 1.26\n\nrequire github.com/bronystylecrazy/ultrastack v0.0.0\n\nreplace github.com/bronystylecrazy/ultrastack => ../fw\n")
+
+	got := discoverFleet(root)
+	if len(got) != 3 {
+		t.Fatalf("want 3 products, got %d: %+v", len(got), got)
+	}
+	byMod := map[string]fleetProduct{}
+	for _, p := range got {
+		byMod[p.Module] = p
+	}
+	if byMod["github.com/acme/speedcheck"].Version != "v0.2.0" ||
+		byMod["github.com/acme/legacy"].Version != "v0.1.0" {
+		t.Fatalf("versions: %+v", byMod)
+	}
+	if !byMod["github.com/acme/dev"].Replaced {
+		t.Fatal("replace must be flagged")
+	}
+	if _, bad := byMod["github.com/bronystylecrazy/ultrastack/contrib"]; bad {
+		t.Fatal("framework submodules are not products")
+	}
+}
