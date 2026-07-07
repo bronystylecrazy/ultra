@@ -2,18 +2,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 
-	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/ultrastack/cli"
 	"github.com/bronystylecrazy/ultrastack/contrib/fib"
+	"github.com/bronystylecrazy/ultrastack/di"
 	"github.com/bronystylecrazy/ultrastack/stack"
 )
 
 // The covenant in CI: if this passes, main boots. Every wiring mistake —
 // missing provider, ambiguity, captive scoped dep — fails here with the
-// fix in the error text.
+// fix in the error text. (ultra vet ./... catches the same statically.)
 func TestWiring(t *testing.T) {
 	if err := stack.Validate(Modules()...); err != nil {
 		t.Fatal(err)
@@ -34,15 +36,16 @@ func TestBootAndServe(t *testing.T) {
 
 	base := "http://" + di.MustGet[*fib.Server](app).Addr()
 
+	// The typed sample operation serves JSON.
 	resp, err := http.Get(base + "/hello")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
-	buf := make([]byte, 256)
-	n, _ := resp.Body.Read(buf)
-	if resp.StatusCode != 200 || !strings.Contains(string(buf[:n]), "hello") {
-		t.Fatalf("hello route: %d %q", resp.StatusCode, buf[:n])
+	var hello Hello
+	json.NewDecoder(resp.Body).Decode(&hello)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(hello.Message, "hello") {
+		t.Fatalf("hello operation: %d %+v", resp.StatusCode, hello)
 	}
 
 	// Auth is live: ops endpoints require authentication by default.
@@ -53,5 +56,17 @@ func TestBootAndServe(t *testing.T) {
 	resp2.Body.Close()
 	if resp2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("healthz must require auth, got %d", resp2.StatusCode)
+	}
+}
+
+// The toolbox works, and the API contract is in it: openapi carries the
+// sample operation, ready for `client --out` to generate the frontend.
+func TestToolbox(t *testing.T) {
+	code, out, errOut := cli.Test([]string{"openapi"}, Modules()...)
+	if code != 0 {
+		t.Fatalf("openapi failed: %s", errOut)
+	}
+	if !strings.Contains(out, "hello.get") || !strings.Contains(out, "3.1.0") {
+		t.Fatalf("openapi must carry the sample operation:\n%s", out)
 	}
 }

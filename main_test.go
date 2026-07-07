@@ -75,3 +75,21 @@ app.Config (singleton, module config) <- []
 		t.Fatalf("identical graphs must exit 0: code=%d out=%q", code, out)
 	}
 }
+
+// ultra vet delegates to an installed ultravet binary, passing args and
+// exit code through.
+func TestVetDelegatesToBinary(t *testing.T) {
+	bin := t.TempDir()
+	script := filepath.Join(bin, "ultravet")
+	os.WriteFile(script, []byte("#!/bin/sh\necho \"vet-args: $@\"\nexit 3\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out, errW strings.Builder
+	code := run([]string{"vet", "./...", "-fix"}, &out, &errW)
+	if code != 3 {
+		t.Fatalf("exit code must pass through: %d (%s)", code, errW.String())
+	}
+	if !strings.Contains(out.String(), "vet-args: ./... -fix") {
+		t.Fatalf("args must pass through: %q", out.String())
+	}
+}

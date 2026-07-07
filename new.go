@@ -16,7 +16,7 @@ import (
 var templates embed.FS
 
 // scaffoldVersion pins the framework version generated products require.
-const scaffoldVersion = "v0.1.0"
+const scaffoldVersion = "v0.2.0"
 
 // scaffoldGoVersion is the Go directive for generated products.
 const scaffoldGoVersion = "1.26"

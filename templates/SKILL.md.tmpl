@@ -27,11 +27,17 @@ this file covers what is product-specific.
 ## Commands (the binary is a toolbox)
 
 ```
-go run .                    # serve
-go run . routes             # auth-requirement table
+go run .                    # serve (opens the admin socket too)
+go run . routes | health    # auth table / live causal health
 go run . graph | blast      # graph summary / blast radius
+go run . doctor --json      # support bundle for tickets
 go run . config reference   # annotated config docs
+go run . openapi            # OpenAPI 3.1 contract
+go run . client --out src/lib/api   # typed Svelte client (TanStack hooks)
 ```
+
+Before committing wiring changes: `ultra vet ./...` (static DI checks) and
+`go test -run TestWiring` (the covenant).
 
 Add a command by providing `cli.Command` from any module (Boot: true for
 commands needing live components — they start ONLY their own deps).
