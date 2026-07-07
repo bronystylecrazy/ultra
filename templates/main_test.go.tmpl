@@ -1,0 +1,57 @@
+package main
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/ultrastack/contrib/fib"
+	"github.com/bronystylecrazy/ultrastack/stack"
+)
+
+// The covenant in CI: if this passes, main boots. Every wiring mistake —
+// missing provider, ambiguity, captive scoped dep — fails here with the
+// fix in the error text.
+func TestWiring(t *testing.T) {
+	if err := stack.Validate(Modules()...); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBootAndServe(t *testing.T) {
+	t.Setenv("ULTRA_APP_ADDR", "127.0.0.1:0") // random port for tests
+
+	app, err := stack.New(Modules()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer app.Stop(context.Background())
+
+	base := "http://" + di.MustGet[*fib.Server](app).Addr()
+
+	resp, err := http.Get(base + "/hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := make([]byte, 256)
+	n, _ := resp.Body.Read(buf)
+	if resp.StatusCode != 200 || !strings.Contains(string(buf[:n]), "hello") {
+		t.Fatalf("hello route: %d %q", resp.StatusCode, buf[:n])
+	}
+
+	// Auth is live: ops endpoints require authentication by default.
+	resp2, err := http.Get(base + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("healthz must require auth, got %d", resp2.StatusCode)
+	}
+}

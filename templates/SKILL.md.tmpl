@@ -1,0 +1,44 @@
+---
+name: {{.Name}}
+description: How to work in the {{.Name}} product repo — an ultrastack paved-road app.
+---
+
+# {{.Name}}
+
+An ultrastack product: business logic only, everything else is the paved
+road. The framework's full skill lives in the ultrastack repo's SKILL.md;
+this file covers what is product-specific.
+
+## The rules of this repo
+
+- `main.go` never grows. `Modules()` in `modules.go` is the whole assembly;
+  business logic lives in modules like `HelloModule` — providers +
+  `stack.Route`s + `di.Export`s.
+- Every route declares its policy: `Require: "{{.Name}}.read"` (permission),
+  `Require: "policy:name"` (custom Policy), or `Public: true`. The zero
+  value means "any authenticated caller" — safe by default.
+- Config = `config.toml` sections bound to typed structs
+  (`conf.Section[T]("name")`); `[auth.roles]` hot-reloads. Env overrides:
+  `ULTRA_<SECTION>_<FIELD>`. Print the always-current reference:
+  `go run . config reference`.
+- After ANY wiring change, run the covenant: `go test -run TestWiring ./...`
+  — the error text names the fix; `ultra explain DIxxxx` teaches the code.
+
+## Commands (the binary is a toolbox)
+
+```
+go run .                    # serve
+go run . routes             # auth-requirement table
+go run . graph | blast      # graph summary / blast radius
+go run . config reference   # annotated config docs
+```
+
+Add a command by providing `cli.Command` from any module (Boot: true for
+commands needing live components — they start ONLY their own deps).
+
+## Testing layers
+
+1. unit: hand-construct (di.Many literals, di.Some/None, di.LazyOf,
+   di.ScopeFunc, di.FamilyFixed, di.SyncRunner) — never the container
+2. wiring: `TestWiring` (stack.Validate)
+3. integration: `di.TestApp(t, di.Options(Modules()...), di.Swap[X](fake))`

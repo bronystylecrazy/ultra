@@ -1,0 +1,58 @@
+package main
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/bronystylecrazy/ultrastack/contrib/auth"
+	"github.com/bronystylecrazy/ultrastack/contrib/conf"
+	"github.com/bronystylecrazy/ultrastack/contrib/fib"
+	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/ultrastack/stack"
+)
+
+// AppConfig is the [app] section — assembly-time knobs, loaded before the
+// graph exists. Override with ULTRA_APP_ADDR etc.
+type AppConfig struct {
+	Addr string `toml:"addr"`
+}
+
+func (c *AppConfig) SetDefaults() { c.Addr = ":8080" }
+
+// Modules is the full assembly. TestWiring validates exactly this; the
+// covenant means: if that test passes, this app boots.
+func Modules() []di.Registration {
+	app := conf.MustLoadAt[*AppConfig]("", "app")
+	return []di.Registration{
+		conf.Load(),               // config.toml (ULTRA_CONFIG overrides the path)
+		conf.KnownSections("app"), // read via MustLoadAt above
+		fib.HTTP(app.Addr),        // Fiber v3; collects every stack.Route
+		stack.OpsRoutes,           // /healthz, /ops/blast, /ops/graph
+
+		auth.Module(),      // [auth] section; hot-reloadable [auth.roles]
+		auth.Basic(),       // username/password strategy
+		auth.APIKeys(),     // system keys + user personal access tokens
+		auth.Protect,       // enforce Require/Public on every route
+		auth.LoginRoutes,   // POST /auth/login, /auth/logout
+		auth.SessionRoutes, // list/revoke own sessions
+		auth.KeyRoutes,     // key management (+ /auth/keys/self)
+		// Seed a dev user by overriding the default in-memory store:
+		// di.Bind[auth.UserStore](func() *auth.MemUsers {
+		// 	return auth.NewMemUsers(auth.NewUser("admin", "change-me", "admin"))
+		// }),
+
+		HelloModule, // ← your product starts here
+	}
+}
+
+// HelloModule is the sample business module — replace it.
+var HelloModule = di.Module("{{.Name}}",
+	di.Provide(NewHelloRoute),
+)
+
+func NewHelloRoute() stack.Route {
+	return stack.Route{Pattern: "GET /hello", Public: true,
+		Handler: func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintln(w, "hello from {{.Name}}")
+		}}
+}

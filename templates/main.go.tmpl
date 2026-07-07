@@ -1,0 +1,14 @@
+// {{.Name}} runs on the ultrastack paved road. The binary is a toolbox:
+//
+//	go run .                    # serve (default)
+//	go run . routes             # route table with auth requirements
+//	go run . graph              # dependency graph + fingerprint
+//	go run . config reference   # annotated config.toml, generated
+//	go run . help
+package main
+
+import "github.com/bronystylecrazy/ultrastack/cli"
+
+func main() {
+	cli.Main(Modules()...)
+}

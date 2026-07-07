@@ -1,0 +1,17 @@
+# {{.Name}} configuration. One file; sections bind to typed structs.
+# Regenerate the full annotated reference anytime:
+#   go run . config reference
+# Env overrides always win: ULTRA_<SECTION>_<FIELD> (e.g. ULTRA_APP_ADDR).
+
+[app]
+addr = ":8080"
+
+[auth]
+# idle = "1h"        # session sliding window
+# absolute = "12h"   # session hard cap
+# secure_cookie = true   # require HTTPS in production
+
+[auth.roles]
+# Hot-reloadable: edits apply without restart.
+admin  = ["*"]
+viewer = ["{{.Name}}.read"]
