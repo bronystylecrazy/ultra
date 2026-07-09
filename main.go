@@ -41,10 +41,7 @@ func run(args []string, out, errW io.Writer) int {
 		return 0
 
 	case "codes":
-		for _, c := range diag.AllCodes {
-			lesson, _ := diag.Lesson(c)
-			fmt.Fprintf(out, "%s  %s\n", c, firstLine(lesson))
-		}
+		fmt.Fprint(out, codesText())
 		return 0
 
 	case "new":
@@ -55,6 +52,9 @@ func run(args []string, out, errW io.Writer) int {
 
 	case "fleet":
 		return cmdFleet(args[1:], out, errW)
+
+	case "mcp":
+		return cmdMCP(os.Stdin, out, errW)
 
 	case "diff":
 		if len(args) != 3 {
@@ -100,5 +100,8 @@ func usage(w io.Writer) {
   ultra codes                     list every diagnostic code
   ultra diff <old> <new>          semantic diff of two GraphSummary files
                                   (exit 1 when the graphs differ)
+  ultra mcp                       Model Context Protocol server over stdio:
+                                  the graph intelligence as agent tools
+                                  (claude mcp add ultrastack -- ultra mcp)
 `)
 }

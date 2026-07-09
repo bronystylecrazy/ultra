@@ -4,7 +4,20 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/bronystylecrazy/ultrastack/di/diag"
 )
+
+// codesText is the `ultra codes` registry: every code with its one-line
+// summary. Shared by the CLI and the mcp `codes` tool.
+func codesText() string {
+	var b strings.Builder
+	for _, c := range diag.AllCodes {
+		lesson, _ := diag.Lesson(c)
+		fmt.Fprintf(&b, "%s  %s\n", c, firstLine(lesson))
+	}
+	return b.String()
+}
 
 // diffGraphs compares two GraphSummary texts semantically: each line is
 // "head <- [deps]", where head identifies the provider (type, kind,

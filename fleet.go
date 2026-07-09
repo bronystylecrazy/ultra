@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -130,40 +131,50 @@ func discoverFleet(root string) []fleetProduct {
 // fingerprint asks the product itself: `go run . graph --json` — every
 // product is a toolbox, so the fleet needs no special hooks.
 func fingerprint(p *fleetProduct) {
-	cmd := exec.Command("go", "run", ".", "graph", "--json")
-	cmd.Dir = p.Dir
-	cmd.Env = append(os.Environ(), "ULTRA_ADMIN_SOCKET=off")
-	outBuf := &strings.Builder{}
-	cmd.Stdout = outBuf
-	errBuf := &strings.Builder{}
-	cmd.Stderr = errBuf
-	done := make(chan error, 1)
-	if err := cmd.Start(); err != nil {
+	out, err := goRunProduct(p.Dir, "graph", "--json")
+	if err != nil {
 		p.Err = err.Error()
-		return
-	}
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			p.Err = firstLineOf(errBuf.String())
-			return
-		}
-	case <-time.After(90 * time.Second):
-		cmd.Process.Kill()
-		p.Err = "graph --json timed out"
 		return
 	}
 	var g struct {
 		Fingerprint string `json:"fingerprint"`
 		Components  []any  `json:"components"`
 	}
-	if err := json.Unmarshal([]byte(outBuf.String()), &g); err != nil {
+	if err := json.Unmarshal([]byte(out), &g); err != nil {
 		p.Err = "unparseable graph output"
 		return
 	}
 	p.Fingerprint = g.Fingerprint
 	p.Components = len(g.Components)
+}
+
+// goRunProduct runs `go run . <args>` inside a product dir with a hard
+// timeout, returning stdout. The admin socket is disabled so the toolbox
+// answers from a fresh process rather than a listening instance. Shared by
+// the fleet fingerprint and the mcp graph/blast tools.
+func goRunProduct(dir string, args ...string) (string, error) {
+	cmd := exec.Command("go", append([]string{"run", "."}, args...)...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "ULTRA_ADMIN_SOCKET=off")
+	outBuf := &strings.Builder{}
+	errBuf := &strings.Builder{}
+	cmd.Stdout = outBuf
+	cmd.Stderr = errBuf
+	done := make(chan error, 1)
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			return "", errors.New(firstLineOf(errBuf.String()))
+		}
+		return outBuf.String(), nil
+	case <-time.After(90 * time.Second):
+		cmd.Process.Kill()
+		return "", errors.New(strings.Join(args, " ") + " timed out")
+	}
 }
 
 func firstLineOf(s string) string {

@@ -11,16 +11,23 @@ import (
 // the kernel keeps zero dependencies; `ultra vet` is a thin delegator.
 const analyzerModule = "github.com/bronystylecrazy/ultrastack/analyzer/cmd/ultravet"
 
-// cmdVet runs the static analyzer: an installed ultravet binary if
-// present, else `go run <module>@latest` (which needs GOPRIVATE + git
-// auth while the repo is private).
+// cmdVet runs the static analyzer over the current directory.
 func cmdVet(args []string, out, errW io.Writer) int {
+	return runVet("", args, out, errW)
+}
+
+// runVet delegates to the analyzer: an installed ultravet binary if
+// present, else `go run <module>@latest` (which needs GOPRIVATE + git
+// auth while the repo is private). dir, when set, is the working directory
+// (the mcp `vet` tool analyzes a named product); empty runs in place.
+func runVet(dir string, args []string, out, errW io.Writer) int {
 	if len(args) == 0 {
 		args = []string{"./..."}
 	}
 
 	run := func(name string, argv ...string) int {
 		cmd := exec.Command(name, argv...)
+		cmd.Dir = dir
 		cmd.Stdout = out
 		cmd.Stderr = errW
 		cmd.Stdin = os.Stdin
