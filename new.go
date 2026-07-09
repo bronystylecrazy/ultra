@@ -51,6 +51,19 @@ func scaffold(dir, name, module string) error {
 		"go.mod.tmpl":       "go.mod",
 		"SKILL.md.tmpl":     "SKILL.md",
 		"gitignore.tmpl":    ".gitignore",
+		// The routing core (SKILL.md) plus one reference per capability this
+		// scaffold actually wires — conf, http, auth, otel, api, cli — and the
+		// kernel/errors/graph pointers. They route to the framework's generated
+		// references; growing the product means adding the preset's reference.
+		"references/kernel.md.tmpl":       "references/kernel.md",
+		"references/errors.md.tmpl":       "references/errors.md",
+		"references/graph.md.tmpl":        "references/graph.md",
+		"references/presets/conf.md.tmpl": "references/presets/conf.md",
+		"references/presets/http.md.tmpl": "references/presets/http.md",
+		"references/presets/auth.md.tmpl": "references/presets/auth.md",
+		"references/presets/otel.md.tmpl": "references/presets/otel.md",
+		"references/presets/api.md.tmpl":  "references/presets/api.md",
+		"references/presets/cli.md.tmpl":  "references/presets/cli.md",
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -60,7 +73,11 @@ func scaffold(dir, name, module string) error {
 		if err != nil {
 			return fmt.Errorf("template %s: %w", tmpl, err)
 		}
-		f, err := os.Create(filepath.Join(dir, out))
+		target := filepath.Join(dir, out)
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		f, err := os.Create(target)
 		if err != nil {
 			return err
 		}

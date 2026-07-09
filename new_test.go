@@ -26,7 +26,13 @@ func TestScaffoldRendersAllFiles(t *testing.T) {
 	if err := scaffold(dir, "speedcheck", "github.com/acme/speedcheck"); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"main.go", "modules.go", "config.toml", "main_test.go", "go.mod", "SKILL.md", ".gitignore"} {
+	for _, f := range []string{
+		"main.go", "modules.go", "config.toml", "main_test.go", "go.mod", "SKILL.md", ".gitignore",
+		// The stamped routing core points at references for every wired capability.
+		"references/kernel.md", "references/errors.md", "references/graph.md",
+		"references/presets/conf.md", "references/presets/http.md", "references/presets/auth.md",
+		"references/presets/otel.md", "references/presets/api.md", "references/presets/cli.md",
+	} {
 		b, err := os.ReadFile(filepath.Join(dir, f))
 		if err != nil {
 			t.Fatalf("missing %s: %v", f, err)

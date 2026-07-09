@@ -1,0 +1,15 @@
+# otel — tracing
+
+This product wires `otel.Module()` + `otel.TraceRoutes` (a server span per route,
+joining the caller's W3C traceparent).
+
+- `[otel]` section: service_name, exporter (otlp|stdout|none), sample_ratio
+  (HOT-RELOADABLE — raise a misbehaving box to 1.0 at runtime). Exporter honors
+  `OTEL_EXPORTER_OTLP_*` envs; `exporter=none` until configured.
+- Extend the waterfall, one registration each: `otel.TracePG` (span per query),
+  `otel.TraceRedis`, `otel.TraceLogs` (slog lines gain trace_id/span_id),
+  `otel.TraceClient` (outbound *http.Client carries traceparent),
+  `otel.TraceInference` (client span per gRPC RPC).
+
+Framework reference (generated): ultrastack `references/presets/otel.md`.
+`go doc github.com/bronystylecrazy/ultrastack/contrib/otel Module`.

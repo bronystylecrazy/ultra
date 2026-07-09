@@ -1,28 +1,61 @@
 ---
 name: {{.Name}}
-description: How to work in the {{.Name}} product repo — an ultrastack paved-road app.
+description: How to work in the {{.Name}} product repo — an ultrastack paved-road app. The routing core: the verification loop, the rules of this repo, and where to read next.
 ---
 
 # {{.Name}}
 
-An ultrastack product: business logic only, everything else is the paved
-road. The framework's full skill lives in the ultrastack repo's SKILL.md;
-this file covers what is product-specific.
+An ultrastack product: business logic only, everything else is the paved road.
+This file is the routing core. The framework's own SKILL.md (and its
+`references/`) live in the ultrastack module; the `references/` here cover what
+this product wires.
+
+## The mental model
+
+Constructors are providers; parameters are injections; implement
+`Start`/`Stop`/`Healthy` and lifecycle is handled; wrap a parameter in
+`Many`/`Lazy`/`Optional` for anything but exactly-one; every failure is a
+structured diagnostic that names the fix. Roles are types, never string names.
+The covenant: **if the wiring test passes, this app boots.**
+
+## The verification loop (check, don't recall)
+
+Hand-written prose drifts; the code does not. An agent that checks is immune to
+its own hallucinations. Every time, in order:
+
+1. **Before wiring** → `ultra vet ./...` (static DI checks before anything runs).
+2. **On any `DIxxxx`** → `ultra explain <code>` — read the lesson; never fix
+   from memory.
+3. **Unsure of an API** → `go doc <pkg> <Symbol>` — never guess a signature.
+4. **After changes** → `go test -run TestWiring ./...` (the covenant as CI).
 
 ## The rules of this repo
 
 - `main.go` never grows. `Modules()` in `modules.go` is the whole assembly;
-  business logic lives in modules like `HelloModule` — providers +
-  `stack.Route`s + `di.Export`s.
+  business logic lives in modules — providers + `stack.Route`s + `di.Export`s.
 - Every route declares its policy: `Require: "{{.Name}}.read"` (permission),
-  `Require: "policy:name"` (custom Policy), or `Public: true`. The zero
-  value means "any authenticated caller" — safe by default.
+  `Require: "policy:name"` (custom Policy), or `Public: true`. The zero value
+  means "any authenticated caller" — safe by default.
 - Config = `config.toml` sections bound to typed structs
   (`conf.Section[T]("name")`); `[auth.roles]` hot-reloads. Env overrides:
-  `ULTRA_<SECTION>_<FIELD>`. Print the always-current reference:
-  `go run . config reference`.
-- After ANY wiring change, run the covenant: `go test -run TestWiring ./...`
-  — the error text names the fix; `ultra explain DIxxxx` teaches the code.
+  `ULTRA_<SECTION>_<FIELD>`. Print the reference: `go run . config reference`.
+
+## Where to read next (task → reference)
+
+| Task | Open |
+|---|---|
+| Config files & sections | `references/presets/conf.md` |
+| HTTP server / routes | `references/presets/http.md` |
+| Typed API + frontend codegen | `references/presets/api.md` |
+| Toolbox binary: subcommands, `--json`, doctor | `references/presets/cli.md` |
+| Auth: strategies, sessions, keys, OIDC/JWT | `references/presets/auth.md` |
+| Tracing / OpenTelemetry | `references/presets/otel.md` |
+| Registration, params, scopes, lifecycle, testing | `references/kernel.md` |
+| Hit an error code | `references/errors.md` or `ultra explain <code>` |
+| Inspect the graph / drift | `references/graph.md` |
+
+Growing past what is wired (pg, migrate, authpg, redis, ws, s3, inference)? Each
+is one registration — read that preset's reference in the ultrastack module.
 
 ## Commands (the binary is a toolbox)
 
@@ -36,15 +69,9 @@ go run . openapi            # OpenAPI 3.1 contract
 go run . client --out src/lib/api   # typed Svelte client (TanStack hooks)
 ```
 
-Before committing wiring changes: `ultra vet ./...` (static DI checks) and
-`go test -run TestWiring` (the covenant).
-
-Add a command by providing `cli.Command` from any module (Boot: true for
-commands needing live components — they start ONLY their own deps).
-
 ## Testing layers
 
 1. unit: hand-construct (di.Many literals, di.Some/None, di.LazyOf,
-   di.ScopeFunc, di.FamilyFixed, di.SyncRunner) — never the container
-2. wiring: `TestWiring` (stack.Validate)
-3. integration: `di.TestApp(t, di.Options(Modules()...), di.Swap[X](fake))`
+   di.ScopeFunc, di.FamilyFixed, di.SyncRunner) — never the container.
+2. wiring: `TestWiring` (stack.Validate) — the covenant.
+3. integration: `di.TestApp(t, di.Options(Modules()...), di.Swap[X](fake))`.

@@ -1,0 +1,17 @@
+# Graph tools reference
+
+This product's graph is fully inspectable — from the toolbox and from agents.
+
+```
+go run . graph              # summary + fingerprint (feed `ultra diff`)
+go run . blast              # blast radius: what breaks if a component fails
+go run . doctor --json      # support bundle: build info, fingerprint, components
+```
+
+Track architecture drift: commit `go run . graph`'s output and diff it in CI with
+`ultra diff old.graph new.graph` (exit 1 on change). In process:
+`di.Explain[T](app)`, `app.Mermaid()`, `app.BlastRadius()`, `app.Fingerprint()`.
+
+For agents, `ultra mcp` exposes `graph`, `blast`, `diff`, and `fleet_status` as
+tools. The authoritative, generated reference is in the ultrastack module at
+`references/graph.md`.

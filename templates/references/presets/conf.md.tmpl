@@ -1,0 +1,18 @@
+# conf — configuration
+
+This product wires `conf.Load()` + `conf.MustLoadAt[*AppConfig]("", "app")`.
+
+- One `config.toml`; sections bind to typed structs via `conf.Section[T]("name")`
+  (defaults → file → env → validate). Assembly-time values use
+  `conf.MustLoadAt[T]("", "section")` in `Modules()`.
+- Strict decode: an unknown key in a consumed section, or a whole section nothing
+  consumes, fails boot with a did-you-mean. `conf.KnownSections("app")` silences
+  sections read via LoadAt.
+- Env overrides win: `ULTRA_<SECTION>_<FIELD>`. Durations are strings ("30s").
+- `SetDefaults()` / `Validate() error` conventions on the struct.
+- Hot reload: `conf.ReloadSection[T]("name")` gives a live handle — never cache
+  `.Get()`; a bad edit keeps old values serving and turns /healthz unhealthy.
+- `go run . config reference` prints the annotated config.
+
+Framework reference (generated): ultrastack `references/presets/conf.md`.
+`go doc github.com/bronystylecrazy/ultrastack/contrib/conf Section`.

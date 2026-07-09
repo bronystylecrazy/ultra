@@ -1,0 +1,19 @@
+# api — typed API + frontend codegen
+
+This product wires `api.Module(api.Info{...})` and declares its first operation in
+`HelloModule`. Declare each operation ONCE in Go; get OpenAPI + a typed client.
+
+```go
+api.Handle[Req, Resp]("cameras.get", "GET /cameras/{cam}", fn,
+    api.Require("cameras.read"))
+```
+
+- Request fields bind from `path:"cam"` / `query:"since"` tags and the JSON body;
+  return `api.Errorf(404, ...)`; `api.None` = no body/204.
+- `api.Websocket[Send, Recv](name, path)` declares realtime contracts.
+- `go run . openapi` emits OpenAPI 3.1; `go run . client --out src/lib/api`
+  generates the Svelte client: types.ts, client.ts, queries.ts (TanStack Svelte
+  Query hooks), streams.ts. `@tanstack/svelte-query` is the only peer.
+
+Framework reference (generated): ultrastack `references/presets/api.md`.
+`go doc github.com/bronystylecrazy/ultrastack/contrib/api Handle`.

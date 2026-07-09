@@ -56,6 +56,9 @@ func run(args []string, out, errW io.Writer) int {
 	case "mcp":
 		return cmdMCP(os.Stdin, out, errW)
 
+	case "skill":
+		return cmdSkill(args[1:], out, errW)
+
 	case "diff":
 		if len(args) != 3 {
 			fmt.Fprintln(errW, "usage: ultra diff old.graph new.graph")
@@ -103,5 +106,8 @@ func usage(w io.Writer) {
   ultra mcp                       Model Context Protocol server over stdio:
                                   the graph intelligence as agent tools
                                   (claude mcp add ultrastack -- ultra mcp)
+  ultra skill gen                 regenerate references/ (errors.md + go-doc
+                                  and compiled-example marker blocks); run
+                                  from the repo root — the drift test gates it
 `)
 }
