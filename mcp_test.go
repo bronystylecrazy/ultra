@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +197,80 @@ func TestMCPGraphTool(t *testing.T) {
 	}
 	if g.Fingerprint == "" || len(g.Components) == 0 {
 		t.Fatalf("graph missing fingerprint/components: %s", out)
+	}
+}
+
+// fakeUltravet installs a shell-script `ultravet` on PATH for the duration of
+// a test and returns a restore func. runVet finds it via exec.LookPath.
+func fakeUltravet(t *testing.T, script string) func() {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake binary is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "ultravet")
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Getenv("PATH")
+	os.Setenv("PATH", dir+string(os.PathListSeparator)+old)
+	return func() { os.Setenv("PATH", old) }
+}
+
+// TestMCPVetDiagJSON asserts the vet tool prefers ultravet -diagjson and that
+// the structured findings flow through unchanged to the MCP result.
+func TestMCPVetDiagJSON(t *testing.T) {
+	restore := fakeUltravet(t, `#!/bin/sh
+case "$1" in
+-diagjson) echo '[{"code":"DI0001","message":"error[DI0001]: no provider for *x.Config (needed by NewDB)","file":"x.go","line":10,"col":2,"related":[{"file":"x.go","line":3,"col":6,"message":"needed by NewDB, declared here"}]}]'; exit 1 ;;
+-json) echo '{"x":{"ultravet":[]}}'; exit 0 ;;
+esac
+`)
+	defer restore()
+
+	out, err := toolVet(json.RawMessage(fmt.Sprintf(`{"dir":%q}`, t.TempDir())))
+	if err != nil {
+		t.Fatalf("vet: %v", err)
+	}
+	var findings []struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		File    string `json:"file"`
+		Line    int    `json:"line"`
+		Col     int    `json:"col"`
+		Related []struct {
+			Message string `json:"message"`
+		} `json:"related"`
+	}
+	if err := json.Unmarshal([]byte(out), &findings); err != nil {
+		t.Fatalf("vet output is not a diagjson array: %v\n%s", err, out)
+	}
+	if len(findings) != 1 || findings[0].Code != "DI0001" || findings[0].Line != 10 ||
+		len(findings[0].Related) != 1 {
+		t.Fatalf("structured shape not preserved: %s", out)
+	}
+}
+
+// TestMCPVetFallsBackToJSON asserts that an older ultravet that does not know
+// -diagjson transparently falls back to the flat go/analysis -json output.
+func TestMCPVetFallsBackToJSON(t *testing.T) {
+	restore := fakeUltravet(t, `#!/bin/sh
+case "$1" in
+-diagjson) echo 'flag provided but not defined: -diagjson' 1>&2; exit 2 ;;
+-json) echo '{"pkg":{"ultravet":[{"posn":"x.go:1:1","message":"error[DI0001]: no provider"}]}}'; exit 0 ;;
+esac
+`)
+	defer restore()
+
+	out, err := toolVet(json.RawMessage(fmt.Sprintf(`{"dir":%q}`, t.TempDir())))
+	if err != nil {
+		t.Fatalf("vet: %v", err)
+	}
+	if strings.HasPrefix(strings.TrimSpace(out), "[") {
+		t.Fatalf("expected flat -json fallback (object), got an array: %s", out)
+	}
+	if !strings.Contains(out, `"posn"`) || !strings.Contains(out, "ultravet") {
+		t.Fatalf("expected flat go/analysis -json passthrough, got: %s", out)
 	}
 }
 
