@@ -1,0 +1,21 @@
+// Package ui embeds the built single-page frontend so the product ships as one
+// binary. The frontend build writes to dist/, and `//go:embed all:dist`
+// compiles it in — the `all:` prefix matters, so hashed assets and the
+// committed dist/.keep both come along.
+//
+// Build order: the frontend first, then the binary:
+//
+//	vite build --outDir internal/ui/dist && go build
+//
+// Until you build a frontend, dist/ holds only .keep and stack.SPA serves a
+// "UI not built" placeholder — the backend boots and serves its API regardless.
+package ui
+
+import "embed"
+
+// Dist is the embedded built SPA. Wire it as the HTTP fallback in modules.go:
+//
+//	stack.SPA(ui.Dist, stack.SPARoot("dist")),
+//
+//go:embed all:dist
+var Dist embed.FS

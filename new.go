@@ -51,6 +51,11 @@ func scaffold(dir, name, module string) error {
 		"go.mod.tmpl":       "go.mod",
 		"SKILL.md.tmpl":     "SKILL.md",
 		"gitignore.tmpl":    ".gitignore",
+		// The embedded-frontend seam: an empty dist committed so
+		// `//go:embed all:dist` always compiles, and stack.SPA (wired,
+		// commented, in modules.go) serves a placeholder until a build lands.
+		"internal/ui/ui.go.tmpl":     "internal/ui/ui.go",
+		"internal/ui/dist/keep.tmpl": "internal/ui/dist/.keep",
 		// The routing core (SKILL.md) plus one reference per capability this
 		// scaffold actually wires — conf, http, auth, otel, api, cli — and the
 		// kernel/errors/graph pointers. They route to the framework's generated

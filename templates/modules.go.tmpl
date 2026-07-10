@@ -51,6 +51,12 @@ func Modules() []di.Registration {
 		// (types + fetch client + TanStack Svelte Query hooks).
 		api.Module(api.Info{Title: "{{.Name}}", Version: "0.1.0"}),
 
+		// Embedded single-binary frontend (registered routes always win). Build
+		// the frontend, then uncomment — needs the net/http paved road, so swap
+		// fib.HTTP above for stack.HTTP(app.Addr). See references/presets/spa.md.
+		//   import "{{.Module}}/internal/ui"
+		//   stack.SPA(ui.Dist, stack.SPARoot("dist")),
+
 		// Growth is one registration each (see the framework SKILL.md):
 		//   pg.Module() + migrate.Module() + authpg.Module()  durable identity + schema
 		//   redis.Module() + redis.Sessions()                 multi-instance sessions

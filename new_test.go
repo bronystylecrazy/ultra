@@ -28,6 +28,8 @@ func TestScaffoldRendersAllFiles(t *testing.T) {
 	}
 	for _, f := range []string{
 		"main.go", "modules.go", "config.toml", "main_test.go", "go.mod", "SKILL.md", ".gitignore",
+		// The embedded-frontend seam.
+		"internal/ui/ui.go", "internal/ui/dist/.keep",
 		// The stamped routing core points at references for every wired capability.
 		"references/kernel.md", "references/errors.md", "references/graph.md",
 		"references/presets/conf.md", "references/presets/http.md", "references/presets/auth.md",

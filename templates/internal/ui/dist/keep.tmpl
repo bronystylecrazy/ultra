@@ -1,0 +1,4 @@
+This file keeps internal/ui/dist/ in version control so `//go:embed all:dist`
+always has a target. The frontend build (vite build --outDir internal/ui/dist)
+populates this directory; stack.SPA serves a "UI not built" placeholder until
+it does.

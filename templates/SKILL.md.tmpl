@@ -49,6 +49,7 @@ its own hallucinations. Every time, in order:
 | Typed API + frontend codegen | `references/presets/api.md` |
 | Toolbox binary: subcommands, `--json`, doctor | `references/presets/cli.md` |
 | Auth: strategies, sessions, keys, OIDC/JWT | `references/presets/auth.md` |
+| Embedded single-binary frontend | ultrastack `references/presets/spa.md` |
 | Tracing / OpenTelemetry | `references/presets/otel.md` |
 | Registration, params, scopes, lifecycle, testing | `references/kernel.md` |
 | Hit an error code | `references/errors.md` or `ultra explain <code>` |
@@ -56,6 +57,14 @@ its own hallucinations. Every time, in order:
 
 Growing past what is wired (pg, migrate, authpg, redis, ws, s3, inference)? Each
 is one registration — read that preset's reference in the ultrastack module.
+
+Shipping a frontend in this one binary? `internal/ui` embeds `dist/`; uncomment
+`stack.SPA` in `modules.go`. Build order is frontend-then-binary — the embed
+must see the built assets:
+
+```
+vite build --outDir internal/ui/dist && go build
+```
 
 ## Commands (the binary is a toolbox)
 
