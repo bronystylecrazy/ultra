@@ -40,10 +40,19 @@ type fleetProduct struct {
 
 func cmdFleet(args []string, out, errW io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(errW, "usage: ultra fleet status|vet [dir] [--save] [--json]")
+		fmt.Fprintln(errW, "usage: ultra fleet status|vet|bump|profiles [dir] [flags]")
 		return 2
 	}
 	sub := args[0]
+	// bump and profiles carry value flags (--to vX.Y.Z) and their own
+	// semantics, so they parse and discover for themselves.
+	switch sub {
+	case "bump":
+		return fleetBump(args[1:], out, errW)
+	case "profiles":
+		return fleetProfiles(args[1:], out, errW)
+	}
+
 	root := "."
 	save, jsonOut := false, false
 	for _, a := range args[1:] {
@@ -71,7 +80,7 @@ func cmdFleet(args []string, out, errW io.Writer) int {
 	case "vet":
 		return fleetVet(repos, out, errW)
 	default:
-		fmt.Fprintf(errW, "unknown fleet command %q (status|vet)\n", sub)
+		fmt.Fprintf(errW, "unknown fleet command %q (status|vet|bump|profiles)\n", sub)
 		return 2
 	}
 }
@@ -131,21 +140,39 @@ func discoverFleet(root string) []fleetProduct {
 // fingerprint asks the product itself: `go run . graph --json` — every
 // product is a toolbox, so the fleet needs no special hooks.
 func fingerprint(p *fleetProduct) {
-	out, err := goRunProduct(p.Dir, "graph", "--json")
+	g, err := fetchGraph(p.Dir)
 	if err != nil {
 		p.Err = err.Error()
 		return
 	}
-	var g struct {
-		Fingerprint string `json:"fingerprint"`
-		Components  []any  `json:"components"`
-	}
-	if err := json.Unmarshal([]byte(out), &g); err != nil {
-		p.Err = "unparseable graph output"
-		return
-	}
 	p.Fingerprint = g.Fingerprint
 	p.Components = len(g.Components)
+}
+
+// productGraph is the parsed shape of a product's `graph --json` output — the
+// single fetch that serves both the fingerprint (fleet status) and the
+// capability inventory (fleet profiles).
+type productGraph struct {
+	Fingerprint string `json:"fingerprint"`
+	Components  []struct {
+		Type   string `json:"type"`
+		Module string `json:"module"`
+	} `json:"components"`
+}
+
+// fetchGraph runs a product's own `graph --json` toolbox command once and
+// parses it. Every fleet reader goes through here so a product is asked for
+// its structure exactly one way.
+func fetchGraph(dir string) (*productGraph, error) {
+	out, err := goRunProduct(dir, "graph", "--json")
+	if err != nil {
+		return nil, err
+	}
+	var g productGraph
+	if err := json.Unmarshal([]byte(out), &g); err != nil {
+		return nil, errors.New("unparseable graph output")
+	}
+	return &g, nil
 }
 
 // goRunProduct runs `go run . <args>` inside a product dir with a hard

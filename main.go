@@ -99,6 +99,11 @@ func usage(w io.Writer) {
   ultra fleet status|vet [dir]    the whole fleet: versions, graph
                                   fingerprints + drift (--save baselines),
                                   analyzer findings across every product
+  ultra fleet bump [dir] --to vX.Y.Z   move products behind vX.Y.Z onto it on a
+                                  branch (build + wiring test verify; a failure
+                                  reverts); --push/--pr publish, --full full tests
+  ultra fleet profiles [dir]      group products by capability set (the preset
+                                  modules they wire) — descriptive discovery
   ultra explain <code>            mini-lesson for a diagnostic (e.g. DI0101)
   ultra codes                     list every diagnostic code
   ultra diff <old> <new>          semantic diff of two GraphSummary files
