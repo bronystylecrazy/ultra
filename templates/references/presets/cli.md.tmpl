@@ -4,8 +4,11 @@ This product's `main.go` calls `cli.Main(Modules()...)`, so the binary is a
 toolbox: subcommands collected from the graph.
 
 - Built in: `serve` (default), `routes`, `graph`, `blast`, `doctor` (support
-  bundle + every `cli.DoctorInfo`), plus `config reference` from conf and
-  `openapi`/`client` from api.
+  bundle + every `cli.DoctorInfo`), `health`, `smoke`, plus `config reference`
+  from conf and `openapi`/`client` from api.
+- `smoke` self-checks the app (boot, health, route table, clean stop) — or a
+  deployed URL: `./{{.Name}} smoke --url https://staging.example.com`. Non-zero
+  exit on any failed check; `--json` emits the checklist.
 - Add a command by providing `cli.Command` from any module. `Boot: true` for
   commands needing live components (starts ONLY their dependency closure);
   `Destructive: true` demands `--yes`; `Remote: true` runs inside the live

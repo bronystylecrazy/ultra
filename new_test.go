@@ -28,12 +28,16 @@ func TestScaffoldRendersAllFiles(t *testing.T) {
 	}
 	for _, f := range []string{
 		"main.go", "modules.go", "config.toml", "main_test.go", "go.mod", "SKILL.md", ".gitignore",
+		// The testing tier: smoke, sanity (per area), binary e2e, and CI ladder.
+		"smoke_test.go", "sanity_auth_test.go", "sanity_api_test.go",
+		"e2e/doc.go", "e2e/story_test.go", ".github/workflows/ci.yml",
 		// The embedded-frontend seam.
 		"internal/ui/ui.go", "internal/ui/dist/.keep",
 		// The stamped routing core points at references for every wired capability.
 		"references/kernel.md", "references/errors.md", "references/graph.md",
 		"references/presets/conf.md", "references/presets/http.md", "references/presets/auth.md",
 		"references/presets/otel.md", "references/presets/api.md", "references/presets/cli.md",
+		"references/presets/testkit.md",
 	} {
 		b, err := os.ReadFile(filepath.Join(dir, f))
 		if err != nil {

@@ -51,6 +51,15 @@ func scaffold(dir, name, module string) error {
 		"go.mod.tmpl":       "go.mod",
 		"SKILL.md.tmpl":     "SKILL.md",
 		"gitignore.tmpl":    ".gitignore",
+		// The testing tier: smoke (does it turn on), one sanity file per wired
+		// capability area (auth, api), and a binary-mode e2e story. Plus the CI
+		// ladder. See references/presets/testkit.md.
+		"smoke_test.go.tmpl":       "smoke_test.go",
+		"sanity_auth_test.go.tmpl": "sanity_auth_test.go",
+		"sanity_api_test.go.tmpl":  "sanity_api_test.go",
+		"e2e/doc.go.tmpl":          "e2e/doc.go",
+		"e2e/story_test.go.tmpl":   "e2e/story_test.go",
+		"github-ci.yml.tmpl":       ".github/workflows/ci.yml",
 		// The embedded-frontend seam: an empty dist committed so
 		// `//go:embed all:dist` always compiles, and stack.SPA (wired,
 		// commented, in modules.go) serves a placeholder until a build lands.
@@ -67,8 +76,9 @@ func scaffold(dir, name, module string) error {
 		"references/presets/http.md.tmpl": "references/presets/http.md",
 		"references/presets/auth.md.tmpl": "references/presets/auth.md",
 		"references/presets/otel.md.tmpl": "references/presets/otel.md",
-		"references/presets/api.md.tmpl":  "references/presets/api.md",
-		"references/presets/cli.md.tmpl":  "references/presets/cli.md",
+		"references/presets/api.md.tmpl":     "references/presets/api.md",
+		"references/presets/cli.md.tmpl":     "references/presets/cli.md",
+		"references/presets/testkit.md.tmpl": "references/presets/testkit.md",
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

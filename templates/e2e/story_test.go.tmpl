@@ -1,0 +1,50 @@
+package e2e
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"testing"
+
+	"github.com/bronystylecrazy/ultrastack/contrib/testkit"
+	"github.com/google/go-cmp/cmp"
+)
+
+// TestStory_SampleOperation drives the real serve binary end to end: build the
+// product, boot it on an ephemeral port, and prove the public sample operation
+// answers with the expected body. Skipped in -short (it builds the binary).
+//
+// This is the template for your product's stories — grow it with actors
+// (s.User, s.Device, s.Browser), steps, and effect assertions. go-cmp gives a
+// readable diff on any deep-equality mismatch.
+func TestStory_SampleOperation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("e2e builds and runs the product binary; skipped in -short")
+	}
+	s := testkit.ScenarioProduct(t,
+		testkit.WithPackage(".."), // the product's main package
+		testkit.WithConfig("[app]\naddr = \"127.0.0.1:0\"\n"))
+
+	base := s.BaseURL() // builds, boots, and blocks until the server is listening
+
+	s.Step("the public sample operation answers", func(ctx context.Context) error {
+		resp, err := http.Get(base + "/hello")
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("GET /hello: status %d", resp.StatusCode)
+		}
+		var got map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			return err
+		}
+		want := map[string]any{"message": "hello from {{.Name}}"}
+		if diff := cmp.Diff(want, got); diff != "" {
+			return fmt.Errorf("hello body mismatch (-want +got):\n%s", diff)
+		}
+		return nil
+	})
+}

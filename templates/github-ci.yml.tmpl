@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The ladder: each rung is cheaper feedback before the next, so the cheapest
+# signal fails first. A rung's failure stops the ladder there.
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      # Postgres for the container-dependent "full" rung. Tests that need it
+      # read ULTRA_TEST_PG_URL and attach; the rest ignore it and run anyway.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: {{.Name}}_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+
+    env:
+      # The platform repo is private: route module resolution through git auth.
+      GOPRIVATE: github.com/bronystylecrazy/*
+      ULTRA_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/{{.Name}}_test?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "{{.GoVersion}}"
+
+      # 1. vet — static DI + Go checks before anything runs (the covenant, statically).
+      - name: vet
+        run: |
+          go vet ./...
+          go run github.com/bronystylecrazy/ultrastack/cmd/ultra vet ./...
+
+      # 2. smoke — does it turn on? Fast, fail loud.
+      - name: smoke
+        run: go test -run TestSmoke ./...
+
+      # 3. unit — the fast, hermetic tier under the race detector.
+      - name: unit
+        run: go test -short -race ./...
+
+      # 4. sanity — the known-tricky invariants (fast, shallow, no containers).
+      - name: sanity
+        run: go test -run 'TestSanity' ./...
+
+      # 5. full — everything under -race; container-dependent tests attach to the
+      #    Postgres service above (or skip when it is absent).
+      - name: full
+        run: go test -race ./...
+
+      # ---- opt-in rungs (uncomment to enable) ----
+      #
+      # Coverage threshold (fail under 70%):
+      #   - name: coverage
+      #     run: |
+      #       go test -race -coverprofile=cover.out ./...
+      #       go tool cover -func=cover.out | awk '/^total:/ {print; if ($3+0 < 70.0) exit 1}'
+      #
+      # Binary reuse (build once, share with testkit.Product/e2e tests):
+      #   - name: e2e-with-prebuilt-binary
+      #     run: |
+      #       go build -o /tmp/{{.Name}} .
+      #       ULTRA_TEST_BINARY=/tmp/{{.Name}} go test ./e2e/...

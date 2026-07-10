@@ -49,6 +49,7 @@ its own hallucinations. Every time, in order:
 | Typed API + frontend codegen | `references/presets/api.md` |
 | Toolbox binary: subcommands, `--json`, doctor | `references/presets/cli.md` |
 | Auth: strategies, sessions, keys, OIDC/JWT | `references/presets/auth.md` |
+| Testing: smoke, sanity, scenarios, provisioners | `references/presets/testkit.md` |
 | Embedded single-binary frontend | ultrastack `references/presets/spa.md` |
 | Tracing / OpenTelemetry | `references/presets/otel.md` |
 | Registration, params, scopes, lifecycle, testing | `references/kernel.md` |
@@ -78,9 +79,17 @@ go run . openapi            # OpenAPI 3.1 contract
 go run . client --out src/lib/api   # typed Svelte client (TanStack hooks)
 ```
 
-## Testing layers
+## Testing layers (five kinds)
+
+**unit** (hand-built, no container) · **smoke** (`testkit.Smoke` — does it turn
+on) · **sanity** (`TestSanity_*` — fast, shallow, known-tricky invariants) ·
+**integration** (`testkit.App` + a provisioner, one real dep) · **e2e**
+(`testkit.Scenario`/`ScenarioProduct` — the whole product). Read
+`references/presets/testkit.md`; assert with `require` (not `assert`), diff with
+`go-cmp`, never mock a driver.
 
 1. unit: hand-construct (di.Many literals, di.Some/None, di.LazyOf,
    di.ScopeFunc, di.FamilyFixed, di.SyncRunner) — never the container.
 2. wiring: `TestWiring` (stack.Validate) — the covenant.
-3. integration: `di.TestApp(t, di.Options(Modules()...), di.Swap[X](fake))`.
+3. smoke/sanity/e2e: `smoke_test.go`, `sanity_*_test.go`, `e2e/`.
+4. integration: `di.TestApp(t, di.Options(Modules()...), di.Swap[X](fake))`.
