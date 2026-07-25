@@ -2,71 +2,88 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+{{- if .DB}}
+	"net"
+{{- end}}
 	"net/http"
-	"strings"
+{{- if .DB}}
+	"net/url"
+{{- end}}
 	"testing"
+{{- if .DB}}
+	"time"
+{{- end}}
 
-	"github.com/bronystylecrazy/ultrastack/cli"
-	"github.com/bronystylecrazy/ultrastack/contrib/fib"
-	"github.com/bronystylecrazy/ultrastack/di"
+{{if .DB}}	"github.com/bronystylecrazy/ultrastack/contrib/conf"
+	"github.com/bronystylecrazy/ultrastack/contrib/pg"
+{{end}}	"github.com/bronystylecrazy/ultrastack/di"
 	"github.com/bronystylecrazy/ultrastack/stack"
 )
 
-// The covenant in CI: if this passes, main boots. Every wiring mistake —
-// missing provider, ambiguity, captive scoped dep — fails here with the
-// fix in the error text. (ultra vet ./... catches the same statically.)
+// TestWiring is the covenant: if this passes, main boots. Every wiring
+// mistake — a missing provider, an ambiguity, a captive scoped dependency —
+// fails here with the fix in the error text. Read the error; never guess.
+// One run reports EVERY independent defect, so fix the whole list at once.
+// `ultra vet ./...` proves the same statically, before anything runs.
 func TestWiring(t *testing.T) {
-	if err := stack.Validate(Modules()...); err != nil {
+	if err := stack.Validate(App); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestBootAndServe(t *testing.T) {
-	t.Setenv("ULTRA_APP_ADDR", "127.0.0.1:0") // random port for tests
+// TestBoot is the boot smoke: the same App, started for real on a random
+// port (":0" — never a fixed port in a test), answering one request.
+func TestBoot(t *testing.T) {
+{{- if .DB}}
+	requirePostgres(t)
+{{- end}}
+	app := di.TestApp(t, App, di.Supply(stack.Addr(":0")))
+	if err := app.ConstructAll(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := app.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer app.Stop(ctx)
 
-	app, err := stack.New(Modules()...)
+	resp, err := http.Get("http://" + di.MustGet[*stack.Server](app).Addr() + "/healthz")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	defer app.Stop(context.Background())
-
-	base := "http://" + di.MustGet[*fib.Server](app).Addr()
-
-	// The typed sample operation serves JSON.
-	resp, err := http.Get(base + "/hello")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var hello Hello
-	json.NewDecoder(resp.Body).Decode(&hello)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || !strings.Contains(hello.Message, "hello") {
-		t.Fatalf("hello operation: %d %+v", resp.StatusCode, hello)
+{{- if .Auth}}
+	// auth.Protect is wired, and it is secure-by-default all the way down:
+	// /healthz answers 401 to an anonymous caller. If your load balancer
+	// probes health unauthenticated, that is a decision to make here — not
+	// a surprise to discover at 3am.
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("healthz: got %d, want 401 (auth.Protect guards ops too)", resp.StatusCode)
 	}
-
-	// Auth is live: ops endpoints require authentication by default.
-	resp2, err := http.Get(base + "/healthz")
+{{- else}}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("healthz: got %d, want 200", resp.StatusCode)
+	}
+{{- end}}
+}
+{{if .DB}}
+// requirePostgres skips the boot smoke when nothing is listening at the
+// configured [postgres] address — a real boot dials the pool and applies
+// the migrations before it serves. Nothing there is a skip with the fix;
+// something there that then fails to boot is a REAL failure, never a skip.
+// Real engines under load belong one tier up, in tests/integration/ with
+// testkit.Postgres(t), so this tier stays container-free.
+func requirePostgres(t *testing.T) {
+	t.Helper()
+	cfg := conf.MustLoadAt[pg.Config]("", pg.DefaultSection) // file + ULTRA_POSTGRES_URL
+	u, err := url.Parse(cfg.URL)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("[postgres] url is not a URL: %v", err)
 	}
-	resp2.Body.Close()
-	if resp2.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("healthz must require auth, got %d", resp2.StatusCode)
+	c, err := net.DialTimeout("tcp", u.Host, 500*time.Millisecond)
+	if err != nil {
+		t.Skipf("boot needs Postgres at %s (%v) — start it, or point ULTRA_POSTGRES_URL elsewhere", u.Host, err)
 	}
+	c.Close()
 }
-
-// The toolbox works, and the API contract is in it: openapi carries the
-// sample operation, ready for `client --out` to generate the frontend.
-func TestToolbox(t *testing.T) {
-	code, out, errOut := cli.Test([]string{"openapi"}, Modules()...)
-	if code != 0 {
-		t.Fatalf("openapi failed: %s", errOut)
-	}
-	if !strings.Contains(out, "/hello") || !strings.Contains(out, "3.1.0") {
-		t.Fatalf("openapi must carry the sample operation:\n%s", out)
-	}
-}
+{{end}}

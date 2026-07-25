@@ -93,7 +93,12 @@ func run(args []string, out, errW io.Writer) int {
 func usage(w io.Writer) {
 	fmt.Fprint(w, `ultra — the ultrastack companion
 
-  ultra new <name> [--module m]   scaffold a product on the paved road
+  ultra new <name> [--module m]   scaffold a product on the paved road:
+                                  main.go + internal/app + config.toml +
+                                  Taskfile. --db --web --auth are on by
+                                  default; --bare strips to the core
+  ultra new feature <name>        one file at internal/app/<name>/<name>.go
+                                  exporting Use() — then one line in app.go
   ultra vet [packages] [-fix]     static wiring checks (DI0001-DI0106 graph family, UV0001)
                                   before anything runs; -fix applies fixes
   ultra fleet status|vet [dir]    the whole fleet: versions, graph

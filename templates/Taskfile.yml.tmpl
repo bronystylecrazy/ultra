@@ -1,0 +1,55 @@
+# The same verbs in every product on the fleet — learn them once, and any
+# repo answers to the same hands. Do not rename them; add new ones below.
+version: '3'
+
+tasks:
+  dev:api:
+    desc: Serve the API (a dev build serves NO frontend — that is the design)
+    cmds:
+      - go run .
+{{if .Web}}
+  dev:web:
+    desc: The SvelteKit dev server; it proxies the contract paths to dev:api
+    dir: web
+    cmds:
+      - bun run dev
+
+  gen:
+    desc: Regenerate the typed client from the Go contracts — never hand-edit it
+    cmds:
+      - go run . client --out web/src/lib/api
+{{end}}
+  test:
+    desc: The covenant first — wiring, then boot, then everything else
+    cmds:
+      - go test ./...
+{{if .Web}}
+  check:
+    desc: svelte-check — the frontend blast radius of a contract change
+    dir: web
+    cmds:
+      - bun run check
+{{end}}
+  verify:
+    desc: What CI asks for
+    cmds:
+      - task: test
+{{- if .Web}}
+      - task: check
+{{- end}}
+
+  build:
+    desc: The single binary{{if .Web}} — the frontend builds first, then the embed{{end}}
+    cmds:
+{{- if .Web}}
+      - cd web && bun run build
+      - go build -tags embedspa -o bin/{{.Name}} .
+{{- else}}
+      - go build -o bin/{{.Name}} .
+{{- end}}
+
+  run:
+    desc: Build, then serve the single binary
+    cmds:
+      - task: build
+      - ./bin/{{.Name}}

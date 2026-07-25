@@ -1,0 +1,12 @@
+// Package {{.Name}} — <one line describing what this feature owns>.
+package {{.Name}}
+
+import "github.com/bronystylecrazy/ultrastack/di"
+
+// Use wires the feature. Add it to app.Modules().
+func Use() di.Reg {
+	return di.Pkg(
+	// di.Provide(NewStore, NewHandler),
+	// api.Routes[*Handler](),
+	)
+}

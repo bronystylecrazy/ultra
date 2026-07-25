@@ -1,14 +1,99 @@
-// {{.Name}} runs on the ultrastack paved road. The binary is a toolbox:
+// {{.Name}} is one repo, one module, one binary. The binary is also the
+// toolbox:
 //
-//	go run .                    # serve (default)
-//	go run . routes             # route table with auth requirements
-//	go run . graph              # dependency graph + fingerprint
-//	go run . config reference   # annotated config.toml, generated
+//	go run .                    # serve{{if .Web}} — a dev build serves NO frontend{{end}}
+//	go run . routes             # the route table with auth requirements
+//	go run . graph              # the dependency graph + fingerprint
+//	go run . doctor             # runtime self-diagnosis
+//	go run . config reference   # the annotated config.toml, generated
 //	go run . help
 package main
 
-import "github.com/bronystylecrazy/ultrastack/cli"
+import (
+{{- if .DB}}
+	"embed"
 
-func main() {
-	cli.Main(Modules()...)
-}
+{{end}}
+	"github.com/bronystylecrazy/ultrastack/cli"
+	"github.com/bronystylecrazy/ultrastack/contrib/api"
+{{- if .Auth}}
+	"github.com/bronystylecrazy/ultrastack/contrib/auth"
+{{- end}}
+	"github.com/bronystylecrazy/ultrastack/contrib/conf"
+{{- if .DB}}
+	"github.com/bronystylecrazy/ultrastack/contrib/migrate"
+	"github.com/bronystylecrazy/ultrastack/contrib/pg"
+{{- end}}
+	"github.com/bronystylecrazy/ultrastack/contrib/zlog"
+	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/ultrastack/stack"
+
+	"{{.Module}}/internal/app"
+)
+
+// version stamps the OpenAPI document and the generated client.
+const version = "0.1.0"
+{{if .DB}}
+// Persistence is central: ONE migration line for the whole product, never a
+// per-feature directory. Add 00002_*.sql beside it as the schema grows.
+//
+//go:embed internal/db/migrations/*.sql
+var migrations embed.FS
+{{end}}
+// App is the root page — the whole product as one value, assigned exactly
+// once. main runs it, the covenant validates it (stack.Validate(App)),
+// tests compose it with overrides (di.TestApp(t, App, di.Swap[...](fake))),
+// and e2e drives the built binary. Never reassign it: ultravet resolves the
+// var only while it has a single writer.
+var App = di.Options(
+	stack.Product( // *slog.Logger + HTTP on :8080 + /healthz, /ops/*
+		conf.Load(),   // config.toml (ULTRA_CONFIG overrides the path)
+		zlog.Module(), // [log]: zerolog behind the *slog.Logger seam
+
+		// The typed edge. Contracts are declared once, in Go, with logical
+		// paths; OpenAPI, the TS client, the error codes and the dev proxy
+		// are all derived. `go run . client --out web/src/lib/api`.
+		api.Module(api.Info{Title: "{{.Name}}", Version: version}),
+		api.Base("/v1"), // everything else belongs to the frontend
+		api.Docs(),      // /docs, /docs/openapi.json
+{{if .DB}}
+		pg.Module(),      // [postgres]: the pool, dialed in Start
+		migrate.Module(), // goose, applied before anything serves
+		migrate.Files("{{.Name}}", migrations, "internal/db/migrations"),
+{{end}}
+{{- if .Auth}}
+		// Secure by default: every op declares api.Require or api.Public and
+		// forgetting is a boot error. That covers OPS too — with Protect
+		// wired, /healthz and /ops/* answer 401 to anonymous callers.
+		auth.Module(),      // [auth]; in-memory stores until authpg.Module()
+		auth.JWT(),         // Bearer validation; revocation lands next request
+		auth.TokenRoutes,   // POST /auth/token (+/refresh) — API clients
+		auth.LoginRoutes,   // POST /auth/login|logout — browsers (cookie)
+		auth.SessionRoutes, // self-service session list/revoke
+		auth.Protect,       // the enforcement itself
+{{end}}
+{{- if .Web}}
+		SPA(), // dev: nothing at "/"; -tags embedspa: the built web/build
+{{end}}
+		// The product. app.go is the ONLY file that knows the feature list.
+		app.Modules(),
+	),
+)
+
+// Growth is one registration each, right here (see the framework SKILL.md
+// for the reference behind every line):
+//
+{{- if not .DB}}
+//	pg.Module() + migrate.Module()   Postgres pool + embedded migrations
+{{- end}}
+{{- if .Auth}}
+//	authpg.Stores()                  durable users/sessions in Postgres
+{{- else}}
+//	auth.Module() + auth.Protect     identity + route enforcement
+{{- end}}
+//	jobs.Module()                    durable background jobs + cron
+//	ws.Module()                      the realtime hub
+//	otel.Module() + otel.TraceRoutes traces, metrics, logs
+//	rate.Module()                    identity-keyed rate limiting
+
+func main() { cli.Run(App) }

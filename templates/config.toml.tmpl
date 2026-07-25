@@ -1,17 +1,37 @@
-# {{.Name}} configuration. One file; sections bind to typed structs.
-# Regenerate the full annotated reference anytime:
+# {{.Name}} — one file, each section bound to a typed struct.
+#
+# Env always wins over the file: ULTRA_<SECTION>_<FIELD> (ULTRA_LOG_LEVEL,
+{{- if .DB}}
+# ULTRA_POSTGRES_URL, {{if .Auth}}ULTRA_AUTH_JWT_SECRET, {{end}}...) — that is where secrets belong.
+{{- else if .Auth}}
+# ULTRA_AUTH_JWT_SECRET, ...) — that is where secrets belong.
+{{- else}}
+# ...) — that is where secrets belong.
+{{- end}}
+# Decoding is strict: an unknown key, or a section nothing consumes, is a
+# boot error naming the section. Print the annotated reference anytime:
+#
 #   go run . config reference
-# Env overrides always win: ULTRA_<SECTION>_<FIELD> (e.g. ULTRA_APP_ADDR).
 
-[app]
-addr = ":8080"
-
+[log]
+level = "info"   # debug|info|warn|error — retunes live on file change
+format = "auto"  # console|json|auto
+{{if .DB}}
+[postgres]
+url = "postgres://postgres:postgres@localhost:5432/{{.Name}}?sslmode=disable"
+{{end}}
+{{- if .Auth}}
 [auth]
-# idle = "1h"        # session sliding window
-# absolute = "12h"   # session hard cap
-# secure_cookie = true   # require HTTPS in production
+idle = "1h"       # sliding window
+absolute = "12h"  # hard cap per session
+# secure_cookie = true   # require HTTPS — turn this on in production
+
+[auth.jwt]
+# The HS256 signing key for POST /auth/token; at least 32 bytes. Keep it out
+# of the file in real deployments: ULTRA_AUTH_JWT_SECRET.
+# secret = ""
 
 [auth.roles]
-# Hot-reloadable: edits apply without restart.
-admin  = ["*"]
-viewer = ["{{.Name}}.read"]
+# role → permissions, hot-reloadable: edits apply without a restart.
+admin = ["*"]
+{{end}}

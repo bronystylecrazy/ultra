@@ -1,0 +1,10 @@
+-- The product's schema starts here. ONE migration line for the whole
+-- product: add 00002_<what>.sql beside this file, never a per-feature
+-- migrations directory. Goose applies every pending file during Start, so
+-- "migrated before serving" is a lifecycle guarantee.
+
+-- +goose Up
+SELECT 1;
+
+-- +goose Down
+SELECT 1;

@@ -1,0 +1,13 @@
+import adapter from '@sveltejs/adapter-static';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+
+/** @type {import('@sveltejs/kit').Config} */
+export default {
+	preprocess: vitePreprocess(),
+	kit: {
+		// SPA mode: one fallback document, routed on the client. The Go
+		// binary embeds build/ and serves it as the HTTP fallback, so every
+		// registered route still wins.
+		adapter: adapter({ fallback: 'index.html' })
+	}
+};

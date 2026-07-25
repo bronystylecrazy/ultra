@@ -1,0 +1,23 @@
+//go:build embedspa
+
+package main
+
+import (
+	"embed"
+
+	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/ultrastack/stack"
+)
+
+// dist is the built frontend, captured at COMPILE time — so the frontend
+// builds first and the binary second (`task build` does both, in order).
+// The all: prefix is required: it keeps hashed assets and dotfiles.
+//
+//go:embed all:web/build
+var dist embed.FS
+
+// SPA serves the built frontend as the HTTP fallback. It registers one
+// route at "/", the least specific pattern there is, so every registered
+// route — /v1, /auth, /healthz, /ops, /docs — wins by ServeMux specificity
+// and only unclaimed paths reach the shell.
+func SPA() di.Reg { return stack.SPA(dist, stack.SPARoot("web/build")) }

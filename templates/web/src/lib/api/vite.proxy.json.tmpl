@@ -1,0 +1,19 @@
+{
+{{- if .Auth}}
+  "/auth": {
+    "ws": false
+  },
+{{- end}}
+  "/docs": {
+    "ws": false
+  },
+  "/healthz": {
+    "ws": false
+  },
+  "/ops": {
+    "ws": false
+  },
+  "/v1": {
+    "ws": true
+  }
+}

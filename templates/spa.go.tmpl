@@ -1,0 +1,12 @@
+//go:build !embedspa
+
+package main
+
+import "github.com/bronystylecrazy/ultrastack/di"
+
+// SPA is the dev half of the embedspa build-tag pair: a dev build embeds
+// nothing and serves nothing at "/". A 404 there is the design, not a bug —
+// run `task dev:web` for vite, which proxies the contract paths back here.
+//
+// The prod half lives in spa_embed.go behind `-tags embedspa`.
+func SPA() di.Reg { return di.Options() }

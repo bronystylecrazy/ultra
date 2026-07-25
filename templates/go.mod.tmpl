@@ -6,3 +6,12 @@ require (
 	github.com/bronystylecrazy/ultrastack {{.Version}}
 	github.com/bronystylecrazy/ultrastack/contrib {{.Version}}
 )
+
+// Building against a local framework checkout (fixing a preset, trying an
+// unreleased change)? Uncomment both — they always move together, because
+// contrib and the kernel ship as one version — then `go mod tidy`. Comment
+// them back out before you ship: a replace directive never leaves your
+// machine.
+//
+// replace github.com/bronystylecrazy/ultrastack => ../ultrastack
+// replace github.com/bronystylecrazy/ultrastack/contrib => ../ultrastack/contrib

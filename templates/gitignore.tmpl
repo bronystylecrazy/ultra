@@ -4,3 +4,11 @@
 .DS_Store
 .idea/
 .vscode/
+{{- if .Web}}
+
+# The frontend build is an artifact; `task build` regenerates it and the
+# embedspa binary carries it.
+/web/build/
+/web/.svelte-kit/
+/web/node_modules/
+{{- end}}

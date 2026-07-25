@@ -1,0 +1,17 @@
+# sqlc reads the goose migrations as the schema (Down sections ignored) and
+# emits ONE typed querier package for the whole product. Features hold repos
+# built on it; they never hold a connection, and there is never a second
+# generated package.
+#
+#   cd internal/db && sqlc generate
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "queries"
+    gen:
+      go:
+        package: "gen"
+        out: "gen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true

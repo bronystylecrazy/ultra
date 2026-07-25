@@ -1,0 +1,29 @@
+// Package app is the product: the ONLY file in the repo that knows the
+// feature list. main.go splices Modules() in; nothing else aggregates.
+package app
+
+import "github.com/bronystylecrazy/ultrastack/di"
+
+// Modules is the feature list. Every feature is exactly one line:
+//
+//	func Modules() di.Reg {
+//	    return di.Options(
+//	        zones.Use(),
+//	        violations.Use(),
+//	    )
+//	}
+//
+// Scaffold one with `ultra new feature <name>` — it lands at
+// internal/app/<name>/<name>.go exporting Use(), and this is where you add
+// the line.
+//
+// Cross-feature seams live here too, and only here. Features never import
+// features: the CONSUMER declares the interface it needs, someone
+// implements it, and this file binds the two —
+//
+//	di.Alias[telemetry.Recorder, *violations.Store](),
+//
+// so the coupling is visible in one place and swappable in tests.
+func Modules() di.Reg {
+	return di.Options()
+}
