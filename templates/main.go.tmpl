@@ -48,24 +48,24 @@ var migrations embed.FS
 var App = di.Options(
 	stack.Product( // *slog.Logger + HTTP on :8080 + /healthz, /ops/*
 		conf.Load(),   // config.toml (ULTRA_CONFIG overrides the path)
-		zlog.Module(), // [log]: zerolog behind the *slog.Logger seam
+		zlog.Use(), // [log]: zerolog behind the *slog.Logger seam
 
 		// The typed edge. Contracts are declared once, in Go, with logical
 		// paths; OpenAPI, the TS client, the error codes and the dev proxy
 		// are all derived. `go run . client --out web/src/lib/api`.
-		api.Module(api.Info{Title: "{{.Name}}", Version: version}),
+		api.Use(api.Info{Title: "{{.Name}}", Version: version}),
 		api.Base("/v1"), // everything else belongs to the frontend
 		api.Docs(),      // /docs, /docs/openapi.json
 {{if .DB}}
-		pg.Module(),      // [postgres]: the pool, dialed in Start
-		migrate.Module(), // goose, applied before anything serves
+		pg.Use(),      // [postgres]: the pool, dialed in Start
+		migrate.Use(), // goose, applied before anything serves
 		migrate.Files("{{.Name}}", migrations, "internal/db/migrations"),
 {{end}}
 {{- if .Auth}}
 		// Secure by default: every op declares api.Require or api.Public and
 		// forgetting is a boot error. That covers OPS too — with Protect
 		// wired, /healthz and /ops/* answer 401 to anonymous callers.
-		auth.Module(),      // [auth]; in-memory stores until authpg.Module()
+		auth.Use(),      // [auth]; in-memory stores until authpg.Use()
 		auth.JWT(),         // Bearer validation; revocation lands next request
 		auth.TokenRoutes,   // POST /auth/token (+/refresh) — API clients
 		auth.LoginRoutes,   // POST /auth/login|logout — browsers (cookie)
@@ -84,16 +84,16 @@ var App = di.Options(
 // for the reference behind every line):
 //
 {{- if not .DB}}
-//	pg.Module() + migrate.Module()   Postgres pool + embedded migrations
+//	pg.Use() + migrate.Use()   Postgres pool + embedded migrations
 {{- end}}
 {{- if .Auth}}
 //	authpg.Stores()                  durable users/sessions in Postgres
 {{- else}}
-//	auth.Module() + auth.Protect     identity + route enforcement
+//	auth.Use() + auth.Protect     identity + route enforcement
 {{- end}}
-//	jobs.Module()                    durable background jobs + cron
-//	ws.Module()                      the realtime hub
-//	otel.Module() + otel.TraceRoutes traces, metrics, logs
-//	rate.Module()                    identity-keyed rate limiting
+//	jobs.Use()                    durable background jobs + cron
+//	ws.Use()                      the realtime hub
+//	otel.Use() + otel.TraceRoutes traces, metrics, logs
+//	rate.Use()                    identity-keyed rate limiting
 
 func main() { cli.Run(App) }
