@@ -265,10 +265,12 @@ fix behind any code run ` + "`ultra explain <code>`" + ` (or the mcp ` + "`expla
 in-process the same text is ` + "`diag.Lesson(code)`" + `.
 
 The prefix tells the domain: ` + "`DI00xx`" + ` graph shape, ` + "`DI01xx`" + ` scopes &
-families, ` + "`DI02xx`" + ` lifecycle, ` + "`DI03xx`" + ` lint warnings. Warnings (severity
-"warning") never fail Validate or block boot — ` + "`di.Warnings`" + ` computes them and
-` + "`serve`" + ` prints them at startup; promote codes to hard errors with
-` + "`ULTRA_WERROR=DI0301,DI0302`" + ` (or ` + "`all`" + `).
+families, ` + "`DI02xx`" + ` lifecycle, ` + "`DI03xx`" + ` lint warnings, and ` + "`UVxxxx`" + ` the
+static analyzer's own lints (` + "`ultra vet`" + ` / ` + "`go vet`" + `) — source facts the graph
+cannot see: what a constructor does, what a file is named, what a package
+imports. Warnings (severity "warning") never fail Validate or block boot —
+` + "`di.Warnings`" + ` computes them and ` + "`serve`" + ` prints them at startup; promote codes
+to hard errors with ` + "`ULTRA_WERROR=DI0301,DI0302`" + ` (or ` + "`all`" + `).
 `)
 	for _, c := range diag.AllCodes {
 		lesson, ok := diag.Lesson(c)
