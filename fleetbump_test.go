@@ -54,6 +54,16 @@ func setupFrameworkProxy(t *testing.T, versions ...string) {
 	t.Setenv("GOSUMDB", "off")
 	t.Setenv("GOFLAGS", "-mod=mod")
 	t.Setenv("GOMODCACHE", modcache)
+	// The framework is a PRIVATE module on a developer machine, and GOPRIVATE /
+	// GONOPROXY make the go command bypass the proxy entirely — it would clone
+	// the real repository and quietly defeat the whole fixture. Override them
+	// with a pattern that matches nothing: to the go command an EMPTY variable
+	// is not "unset", it falls back to the `go env -w` value, so clearing them
+	// would not clear them.
+	t.Setenv("GOPRIVATE", "example.invalid")
+	t.Setenv("GONOPROXY", "example.invalid")
+	t.Setenv("GONOSUMDB", "example.invalid")
+	t.Setenv("GOWORK", "off")
 }
 
 func writeModuleZip(t *testing.T, path, ver string) {
