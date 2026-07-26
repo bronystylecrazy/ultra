@@ -69,6 +69,10 @@ Run it from a product root (the directory holding main.go). Every
 subcommand reads the same canonical root ultravet resolves, so what
 contrib reports and what the graph actually builds cannot disagree.
 
+There is no "contrib upgrade": the presets ship as one module under one
+tag, so they version in lockstep — ultra upgrade moves them all, and
+ultra upgrade --check compares without writing.
+
 Usage:
   ultra contrib [command]
 

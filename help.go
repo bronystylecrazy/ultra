@@ -73,7 +73,11 @@ assembly wires.
 
 Run it from a product root (the directory holding main.go). Every
 subcommand reads the same canonical root ultravet resolves, so what
-contrib reports and what the graph actually builds cannot disagree.`,
+contrib reports and what the graph actually builds cannot disagree.
+
+There is no "contrib upgrade": the presets ship as one module under one
+tag, so they version in lockstep — ultra upgrade moves them all, and
+ultra upgrade --check compares without writing.`,
 				subs: []*command{
 					{
 						name:    "list",
@@ -312,7 +316,7 @@ bump.`,
 			},
 			{
 				name:  "upgrade",
-				args:  "[dir] [--to vX.Y.Z] [--all] [--dry]",
+				args:  "[dir] [--check] [--to vX.Y.Z] [--all] [--dry]",
 				short: "move THIS product onto a framework release",
 				long: `Move one product onto a framework release — latest unless --to.
 
@@ -320,8 +324,12 @@ It trues the ultrastack pins, then go mod tidy, build, test. A failure
 restores go.mod/go.sum, so a bad release leaves nothing behind. Contract
 drift is refreshed and reported, never committed. It never touches git.
 
+--check only answers "am I behind?": pinned vs latest, nothing written,
+exit 1 when a newer release exists — a CI-friendly staleness gate.
+
 A whole workspace at once is a fleet operation: ultra fleet bump.`,
 				flags: []flagDoc{
+					{"--check", "compare the pins against the latest release; write nothing"},
 					{"--to vX.Y.Z", "the target version (default: the latest release)"},
 					{"--all", `also "go get -u ./..." every other dependency`},
 					{"--dry", "show the plan and write nothing"},
@@ -458,8 +466,25 @@ func (c *command) unknown(w io.Writer, typo string) {
 	fmt.Fprintf(w, "Error: unknown command %q for %q\n", typo, c.path())
 	if s := c.nearest(typo); s != "" {
 		fmt.Fprintf(w, "\nDid you mean %q?\n", s)
+	} else if hit := c.rootward(typo); hit != nil {
+		// Not a typo — a real verb, filed one level too deep. `ultra contrib
+		// upgrade` is a reasonable guess (presets version in lockstep, so the
+		// top-level command IS the per-preset one); point at the right level
+		// instead of shrugging.
+		fmt.Fprintf(w, "\nDid you mean %q?\n", hit.path())
 	}
 	fmt.Fprintf(w, "\nRun '%s --help' for usage.\n", c.path())
+}
+
+// rootward resolves a name against the ancestors' children — the command the
+// reader meant when they nested a real verb under the wrong parent.
+func (c *command) rootward(name string) *command {
+	for p := c.parent; p != nil; p = p.parent {
+		if hit := p.find(name); hit != nil {
+			return hit
+		}
+	}
+	return nil
 }
 
 // nearest is the closest child name within an edit distance of 2 — close

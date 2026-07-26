@@ -217,7 +217,15 @@ func contribList(args []string, out, errW io.Writer) int {
 		return 1
 	}
 
-	fmt.Fprintf(out, "%s — capabilities under %s/\n", productName(dir), contribModule)
+	// The pin belongs in this header: "which presets" and "which version of
+	// them" are the same question, and `ultra upgrade --check` is one line away.
+	header := fmt.Sprintf("%s — capabilities under %s/", productName(dir), contribModule)
+	if b, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil {
+		if ps := modPins(string(b), upgradeModules); len(ps) > 0 {
+			header += " @ " + ps[0].Version
+		}
+	}
+	fmt.Fprintln(out, header)
 	if root, err := loadRoot(dir); err == nil {
 		fmt.Fprintf(out, "root: %s at main.go:%d\n", root.Kind, root.Fset.Position(root.Call.Pos()).Line)
 	} else {

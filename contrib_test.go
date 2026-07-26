@@ -444,6 +444,19 @@ func main() { cli.Run(App) }
 	}
 }
 
+// TestContribUpgradePointsUp: presets version in lockstep, so `contrib
+// upgrade` is a real verb filed one level too deep — the error must point at
+// `ultra upgrade`, not shrug.
+func TestContribUpgradePointsUp(t *testing.T) {
+	code, _, errOut := runCLI(t, "contrib", "upgrade")
+	if code != 2 {
+		t.Fatalf("code=%d err=%s", code, errOut)
+	}
+	if !strings.Contains(errOut, `Did you mean "ultra upgrade"?`) {
+		t.Errorf("must point at the top-level command, got:\n%s", errOut)
+	}
+}
+
 func TestContribAddUnknownPreset(t *testing.T) {
 	dir := writeProduct(t, scaffoldRoot, nil)
 	code, _, errOut := runCLI(t, "contrib", "add", "postgres", dir)

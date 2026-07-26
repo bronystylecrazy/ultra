@@ -103,6 +103,42 @@ func TestUpgradeAlreadyCurrent(t *testing.T) {
 	}
 }
 
+// TestUpgradeCheck: the read-only verb. Behind exits 1 and names the movement,
+// current exits 0 — and neither runs the toolchain or writes a byte.
+func TestUpgradeCheck(t *testing.T) {
+	setupGitEnv(t)
+	stubLatest(t, "v0.6.0")
+	root := t.TempDir()
+	dir := newBumpProduct(t, root, "p", "github.com/acme/p", "v0.1.0", nil)
+	before := readFile(t, filepath.Join(dir, "go.mod"))
+
+	var out, errW strings.Builder
+	if code := cmdUpgrade([]string{dir, "--check"}, &out, &errW); code != 1 {
+		t.Fatalf("behind must exit 1 (CI watches this), got %d\n%s%s", code, out.String(), errW.String())
+	}
+	for _, want := range []string{frameworkModule, "v0.1.0", "v0.6.0", "nothing was written"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report is missing %q:\n%s", want, out.String())
+		}
+	}
+	if got := readFile(t, filepath.Join(dir, "go.mod")); got != before {
+		t.Errorf("--check must not touch go.mod")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "go.sum")); err == nil {
+		t.Errorf("--check must not run the toolchain (a go.sum appeared)")
+	}
+
+	current := newBumpProduct(t, root, "q", "github.com/acme/q", "v0.6.0", nil)
+	out.Reset()
+	errW.Reset()
+	if code := cmdUpgrade([]string{current, "--check"}, &out, &errW); code != 0 {
+		t.Fatalf("current must exit 0, got %d\n%s", code, errW.String())
+	}
+	if !strings.Contains(out.String(), "(current)") {
+		t.Errorf("report should mark the pin current:\n%s", out.String())
+	}
+}
+
 // TestUpgradeReplaceActive: a live `replace` is not a refusal (fleet bump skips
 // those; from inside the product, truing the pins under an active replace is a
 // deliberate, legitimate act) — but the report must be honest that the build

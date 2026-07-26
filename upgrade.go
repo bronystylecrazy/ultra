@@ -90,10 +90,12 @@ func latestOf(listOutput string) string {
 
 func cmdUpgrade(args []string, out, errW io.Writer) int {
 	dir, to := ".", ""
-	all, dry := false, false
+	all, dry, check := false, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
+		case a == "--check":
+			check = true
 		case a == "--to":
 			if i+1 >= len(args) {
 				fmt.Fprintln(errW, "ultra upgrade: --to needs a version (e.g. --to v0.9.18)")
@@ -176,6 +178,38 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 
 	col := colorFor(out)
 	errCol := colorFor(errW)
+
+	// --check is the read-only verb: where do the pins point, and is a newer
+	// release out there? It writes nothing and runs no toolchain, so it is
+	// safe anywhere — and it exits 1 when behind, so CI can watch drift.
+	if check {
+		fmt.Fprintf(out, "ultra upgrade --check — %s\n\n", module)
+		width := 0
+		for _, p := range pins {
+			width = max(width, len(p.Module))
+		}
+		for _, p := range pins {
+			status := col.dim(p.Version) + " → " + col.green(to) + " available"
+			if p.Version == to {
+				status = col.green(p.Version) + col.dim(" (current)")
+			} else if sv, ok := parseSemver(p.Version); ok && target.less(sv) {
+				status = col.yellow(p.Version) + col.dim(" (ahead of "+to+")")
+			}
+			fmt.Fprintf(out, "  %-*s  %s\n", width, p.Module, status)
+		}
+		for _, r := range replaces {
+			fmt.Fprintf(out, "\n  %s       replace active: %s — the build follows the\n"+
+				"             replace target, whatever the pins say.\n", col.yellow("note"), r)
+		}
+		if !behind {
+			verdict(errW, "upgrade --check", "up to date at "+to+", nothing written")
+			return 0
+		}
+		fmt.Fprintf(out, "\n  nothing was written. ultra upgrade moves them — and verifies.\n")
+		failVerdict(errW, "upgrade --check", from+" → "+to+" available — run ultra upgrade")
+		return 1
+	}
+
 	fmt.Fprintf(out, "ultra upgrade — %s\n\n", module)
 	width := 0
 	for _, p := range pins {
