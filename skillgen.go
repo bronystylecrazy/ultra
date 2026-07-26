@@ -19,6 +19,10 @@ package main
 //                                                 file between `// ultra:snip
 //                                                 <name>` and `// ultra:snip
 //                                                 end`
+//     <!-- ultra:gen codes <dir> -->             the table of diagnostic codes
+//                                                 that package registers with
+//                                                 diag.Register, read from its
+//                                                 source
 //
 //   example is for a sequence of statements; snip is for whole DECLARATIONS —
 //   a constructor's parameter list, a feature's Use(), a product's assembly —
@@ -38,14 +42,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/bronystylecrazy/ultrastack/di/diag"
 )
 
-// genOpenRe matches a block's opening marker: kind (doc|example|snip), and
-// two space-separated arguments (package+symbol, or file+function/snip name).
-var genOpenRe = regexp.MustCompile(`^<!--\s*ultra:gen\s+(doc|example|snip)\s+(\S+)\s+(\S+)\s*-->$`)
+// genOpenRe matches a block's opening marker: kind, then one or two
+// space-separated arguments (package+symbol, file+function/snip name — or,
+// for codes, just the preset's directory).
+var genOpenRe = regexp.MustCompile(`^<!--\s*ultra:gen\s+(doc|example|snip|codes)\s+(\S+)(?:\s+(\S+))?\s*-->$`)
 
 const genEndMarker = "<!-- ultra:gen end -->"
 
@@ -166,6 +173,9 @@ func renderMarkers(root, content string) (string, error) {
 
 // generateBlock produces the fenced lines that replace a block's body.
 func generateBlock(root, kind, arg1, arg2 string) ([]string, error) {
+	if kind != "codes" && arg2 == "" {
+		return nil, fmt.Errorf("ultra:gen %s %s: this kind needs two arguments", kind, arg1)
+	}
 	switch kind {
 	case "doc":
 		body, err := goDoc(root, arg1, arg2)
@@ -185,6 +195,8 @@ func generateBlock(root, kind, arg1, arg2 string) ([]string, error) {
 			return nil, err
 		}
 		return fence("go", body), nil
+	case "codes":
+		return presetCodesTable(root, arg1)
 	default:
 		return nil, fmt.Errorf("unknown ultra:gen kind %q", kind)
 	}
@@ -337,6 +349,134 @@ func dedent(lines []string) string {
 	return strings.Join(out, "\n")
 }
 
+// presetCodesTable renders a preset's own diagnostic codes — the PGxxxx of
+// contrib/pg — as a table, read from the package's SOURCE rather than from a
+// registry.
+//
+// It has to be source, not imports: the preset codes live in the contrib
+// module, `ultra` links no preset (so `ultra explain PG0101` is deliberately a
+// miss), and a companion binary that imported every preset to document them
+// would be exactly the coupling presets exist to avoid. What the generator
+// reads instead is the one call that defines the fact — diag.Register(code,
+// lesson) — plus the string constants in the same package, so a code that is
+// declared but never registered simply is not in the table.
+func presetCodesTable(root, dir string) ([]string, error) {
+	path := filepath.Join(root, filepath.FromSlash(dir))
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("ultra:gen codes %s: %w", dir, err)
+	}
+	fset := token.NewFileSet()
+	consts := map[string]string{}
+	var registers [][2]ast.Expr
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(path, name), nil, 0)
+		if err != nil {
+			return nil, fmt.Errorf("ultra:gen codes %s: %w", dir, err)
+		}
+		collectStringConsts(f, consts)
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) != 2 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Register" {
+				return true
+			}
+			if x, ok := sel.X.(*ast.Ident); !ok || x.Name != "diag" {
+				return true
+			}
+			registers = append(registers, [2]ast.Expr{call.Args[0], call.Args[1]})
+			return true
+		})
+	}
+	if len(registers) == 0 {
+		return nil, fmt.Errorf("ultra:gen codes %s: no diag.Register calls found", dir)
+	}
+
+	type row struct{ code, summary string }
+	rows := make([]row, 0, len(registers))
+	for _, r := range registers {
+		code, ok := resolveString(r[0], consts)
+		if !ok {
+			return nil, fmt.Errorf("ultra:gen codes %s: cannot resolve the code in a diag.Register call "+
+				"(use a string constant declared in the package)", dir)
+		}
+		lesson, ok := resolveString(r[1], consts)
+		if !ok {
+			return nil, fmt.Errorf("ultra:gen codes %s: cannot resolve the lesson for %s "+
+				"(use a string constant declared in the package)", dir, code)
+		}
+		title, _ := lessonHead(lesson)
+		rows = append(rows, row{code, strings.TrimSpace(strings.TrimPrefix(title, code+" —"))})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].code < rows[j].code })
+
+	out := []string{"| Code | Meaning |", "|------|---------|"}
+	for _, r := range rows {
+		out = append(out, fmt.Sprintf("| `%s` | %s |", r.code, r.summary))
+	}
+	return out, nil
+}
+
+// collectStringConsts records every package-level `const|var NAME = "..."` so
+// a Register call written with named constants (which is how a preset should
+// write it) resolves.
+func collectStringConsts(f *ast.File, into map[string]string) {
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || (gd.Tok != token.CONST && gd.Tok != token.VAR) {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range vs.Names {
+				if i >= len(vs.Values) {
+					continue
+				}
+				if s, ok := stringLit(vs.Values[i]); ok {
+					into[name.Name] = s
+				}
+			}
+		}
+	}
+}
+
+// resolveString reads a string out of an expression that is either a literal,
+// a named constant, or a conversion like diag.Code("PG0101").
+func resolveString(e ast.Expr, consts map[string]string) (string, bool) {
+	switch v := e.(type) {
+	case *ast.Ident:
+		s, ok := consts[v.Name]
+		return s, ok
+	case *ast.CallExpr:
+		if len(v.Args) == 1 {
+			return resolveString(v.Args[0], consts)
+		}
+	}
+	return stringLit(e)
+}
+
+func stringLit(e ast.Expr) (string, bool) {
+	bl, ok := e.(*ast.BasicLit)
+	if !ok || bl.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(bl.Value)
+	if err != nil {
+		return "", false
+	}
+	return s, true
+}
+
 // generateErrorsDoc renders references/errors.md entirely from the diagnostic
 // registry: intro + one entry per code (title line from the lesson, then its
 // first paragraph as the condensed summary). `ultra explain <code>` remains
@@ -359,8 +499,16 @@ cannot see: what a constructor does, what a file is named, what a package
 imports. Warnings (severity "warning") never fail Validate or block boot —
 ` + "`di.Warnings`" + ` computes them and ` + "`serve`" + ` prints them at startup; promote codes
 to hard errors with ` + "`ULTRA_WERROR=DI0301,DI0302`" + ` (or ` + "`all`" + `).
+
+**Preset codes are not listed here.** A preset owns its own codes —
+` + "`PG0101`" + `, ` + "`PG0201`" + `, prefix = the package name uppercased, ` + "`01xx`" + ` runtime and
+` + "`02xx`" + ` config — and registers them at init in the binary that wires it. This
+file is generated from the registry a preset-free binary can see, so each
+preset's codes live in ITS reference (` + "`references/presets/pg.md`" + `), and the
+lesson is ` + "`./app explain PG0101`" + ` rather than ` + "`ultra explain`" + `. A DI0202 whose
+cause carries one nests the preset's help and points at it. See DIAGNOSTICS.md.
 `)
-	for _, c := range diag.AllCodes {
+	for _, c := range diag.AllCodes() {
 		lesson, ok := diag.Lesson(c)
 		if !ok {
 			continue
