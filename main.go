@@ -57,6 +57,9 @@ func run(args []string, out, errW io.Writer) int {
 	case "new":
 		return cmdNew(args[1:], out, errW)
 
+	case "contrib":
+		return cmdContrib(args[1:], out, errW)
+
 	case "vet":
 		return cmdVet(args[1:], out, errW)
 
@@ -135,6 +138,21 @@ func usage(w io.Writer) {
                                   default; --bare strips to the core
   ultra new feature <name>        one file at internal/app/<name>/<name>.go
                                   exporting Use() — then one line in app.go
+  ultra contrib list              this product's capabilities: WIRED (the
+                                  presets it imports, with the entry spelling
+                                  it used) and AVAILABLE (the rest, one line
+                                  each)
+  ultra contrib add <preset>      wire one: the argument goes into the
+                                  assembly's bundle call (before app.Modules()
+                                  when there is one), the import is added, the
+                                  file is gofmt'd, and the refresh chain is
+                                  printed. Refuses a non-canonical root and
+                                  prints the manual one-liner instead. --dry
+                                  shows the diff and writes nothing
+  ultra contrib remove <preset>   the inverse, with a dependency guard: it
+                                  refuses while product packages import the
+                                  preset, or a wired preset needs it. --force
+                                  proceeds anyway (and reports the build)
   ultra vet [packages] [-fix]     static wiring checks (DI0001-DI0106 graph
                                   family, UV0001-UV0006 lints incl. the
                                   product-structure laws) before anything
