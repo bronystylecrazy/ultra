@@ -83,6 +83,8 @@ var presets = []preset{
 		Doc: "in-process typed caches; redis.Caches() overrides the engine"},
 	{Pkg: "conf", Entry: "conf.Use()",
 		Doc: "the config file + env binding ([section] to a typed Config)"},
+	{Pkg: "console", Entry: "console.Use()",
+		Doc: "the embedded ops console at /ops/console (health, boot, preset cards)"},
 	{Pkg: "inference", Entry: "inference.Use()", Section: "inference",
 		Doc: "the gRPC inference client"},
 	{Pkg: "jobs", Entry: "jobs.Use()", Section: "jobs",
