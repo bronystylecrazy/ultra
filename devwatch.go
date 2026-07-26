@@ -1,0 +1,238 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+)
+
+// The watch half of `ultra dev`: which paths mean "rebuild the backend", and
+// how a burst of them becomes exactly one rebuild.
+//
+// The exclusion list is the interesting part, because two of its entries are
+// paths ultra dev ITSELF writes. A loop that watches its own output is an
+// infinite loop: refresh openapi.json → the watcher sees a write → rebuild →
+// refresh openapi.json. The generated client (web/src/lib/api) is the same
+// trap with more files. So the rule is not "ignore noise" — it is "never
+// watch your own exhaust".
+
+// devExcludedRoots are the top-level paths ultra dev never descends into.
+// Each one is either somebody else's job or our own output:
+//
+//	web/            the frontend dev server owns it (vite has its own watcher),
+//	                and web/src/lib/api is the client WE regenerate
+//	node_modules/   never source, always enormous
+//
+// Anything whose path has a dot-segment is excluded too (see devExcluded):
+// that covers .git/, the .ultradev/ build output, .svelte-kit/, editor
+// scratch directories, and emacs' `.#main.go` lock files in one rule.
+var devExcludedRoots = []string{"web", "node_modules"}
+
+// devExcludedOutputs are the derived artifacts the loop regenerates on every
+// restart, named here so the "never watch your own exhaust" rule is explicit
+// rather than an accident of the extension filter. They are the same two
+// constants `ultra upgrade` refreshes — one definition, one meaning.
+var devExcludedOutputs = []string{contractFile, clientDir}
+
+// devExcluded reports whether rel (slash-separated, relative to the product
+// root) is outside the watch entirely — as a file OR as a directory to walk.
+func devExcluded(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	if rel == "" || rel == "." {
+		return false
+	}
+	for _, out := range devExcludedOutputs {
+		if rel == out || strings.HasPrefix(rel, out+"/") {
+			return true
+		}
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+		for _, ex := range devExcludedRoots {
+			if seg == ex {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// devShouldTrigger reports whether a change at rel must rebuild the backend.
+// Only Go compilation inputs qualify: **/*.go plus go.mod and go.sum.
+//
+// config.toml is deliberately NOT here. The reloadable sections reload
+// themselves at runtime, and a restart on every keystroke in a config file
+// would trade a live reload for a cold boot.
+func devShouldTrigger(rel string) bool {
+	if devExcluded(rel) {
+		return false
+	}
+	base := filepath.Base(filepath.ToSlash(rel))
+	return base == "go.mod" || base == "go.sum" || strings.HasSuffix(base, ".go")
+}
+
+// devWatchDirs walks root for every directory the watcher must register.
+// fsnotify is not recursive: one AddWatch per directory is the whole trick,
+// and devWatcher.pump adds new ones as they appear.
+//
+// An unreadable subtree is skipped, never fatal — a dev loop that refuses to
+// start over one permission bit is worse than a dev loop with a blind spot.
+func devWatchDirs(root string) []string {
+	var dirs []string
+	filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
+		if err != nil || !e.IsDir() {
+			return nil //nolint:nilerr // an unreadable entry is a blind spot, not a failure
+		}
+		rel, relErr := filepath.Rel(root, p)
+		if relErr != nil {
+			return nil
+		}
+		if rel != "." && devExcluded(rel) {
+			return fs.SkipDir
+		}
+		dirs = append(dirs, p)
+		return nil
+	})
+	return dirs
+}
+
+// devWatcher is the fsnotify side: it turns filesystem events into relative
+// paths worth rebuilding for, and keeps itself current as packages appear.
+type devWatcher struct {
+	w    *fsnotify.Watcher
+	root string
+}
+
+func newDevWatcher(root string) (*devWatcher, error) {
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+	d := &devWatcher{w: w, root: root}
+	for _, dir := range devWatchDirs(root) {
+		if err := w.Add(dir); err != nil {
+			w.Close()
+			return nil, fmt.Errorf("watch %s: %w", dir, err)
+		}
+	}
+	return d, nil
+}
+
+func (d *devWatcher) Close() error { return d.w.Close() }
+
+// pump forwards the triggering changes to changes and returns when the
+// watcher is closed. A brand-new directory is registered as it is created, so
+// `ultra new feature billing` is watched the moment it exists.
+func (d *devWatcher) pump(changes chan<- string, errW io.Writer) {
+	for {
+		select {
+		case ev, ok := <-d.w.Events:
+			if !ok {
+				return
+			}
+			rel, err := filepath.Rel(d.root, ev.Name)
+			if err != nil {
+				continue
+			}
+			rel = filepath.ToSlash(rel)
+			if devExcluded(rel) {
+				continue
+			}
+			if ev.Has(fsnotify.Create) {
+				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
+					for _, dir := range devWatchDirs(ev.Name) {
+						d.w.Add(dir)
+					}
+					continue
+				}
+			}
+			// Every op counts, Chmod included: on macOS `touch main.go` is a
+			// bare attribute event, and "touch it to rebuild" is a reflex no
+			// loop should punish. Spurious ones cost a debounced no-op build,
+			// and our OWN writes cannot land here — the outputs are excluded
+			// and written only when the bytes actually moved.
+			if devShouldTrigger(rel) {
+				changes <- rel
+			}
+		case err, ok := <-d.w.Errors:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(errW, "watch: %v\n", err)
+		}
+	}
+}
+
+// devBatch debounces and coalesces: it collects change paths from in and
+// hands the consumer ONE sorted, de-duplicated batch per quiet period.
+//
+// The coalescing is the part a plain time.AfterFunc cannot do. A rebuild
+// takes longer than the debounce, and a save-on-every-keystroke editor will
+// fire again while it runs. Because out is unbuffered, the ready batch is
+// only handed over when the consumer comes back for it, and every event that
+// arrives in the meantime joins the SAME pending set — one queued rebuild, no
+// matter how many saves land during the build.
+func devBatch(in <-chan string, out chan<- []string, quiet time.Duration, stop <-chan struct{}) {
+	pending := map[string]bool{}
+	var timer *time.Timer
+	ready := false
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+	for {
+		var tick <-chan time.Time
+		if timer != nil {
+			tick = timer.C
+		}
+		var send chan<- []string
+		var batch []string
+		if ready && len(pending) > 0 {
+			send, batch = out, sortedKeys(pending)
+		}
+		select {
+		case p, ok := <-in:
+			if !ok {
+				return
+			}
+			pending[p] = true
+			ready = false
+			if timer == nil {
+				timer = time.NewTimer(quiet)
+				break
+			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(quiet)
+		case <-tick:
+			timer, ready = nil, true
+		case send <- batch:
+			pending, ready = map[string]bool{}, false
+		case <-stop:
+			return
+		}
+	}
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
