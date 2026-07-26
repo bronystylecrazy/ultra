@@ -107,6 +107,8 @@ var presets = []preset{
 		Doc: "rendered reports: define, enqueue, store", Pairs: []string{"jobs", "s3"}},
 	{Pkg: "s3", Entry: "s3.Use()", Section: "s3", Infra: true,
 		Doc: "S3/MinIO object storage"},
+	{Pkg: "seed", Entry: "seed.Use()",
+		Doc: "named, applied-once data seeds (schema is migrate)", Pairs: []string{"pg", "migrate"}},
 	{Pkg: "ws", Entry: "ws.Use()", Section: "ws",
 		Doc: "the realtime websocket hub"},
 	{Pkg: "zlog", Entry: "zlog.Use()", Section: "log",
