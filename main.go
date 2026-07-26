@@ -57,6 +57,9 @@ func run(args []string, out, errW io.Writer) int {
 	case "new":
 		return cmdNew(args[1:], out, errW)
 
+	case "dev":
+		return cmdDev(args[1:], out, errW)
+
 	case "vet":
 		return cmdVet(args[1:], out, errW)
 
@@ -135,6 +138,14 @@ func usage(w io.Writer) {
                                   default; --bare strips to the core
   ultra new feature <name>        one file at internal/app/<name>/<name>.go
                                   exporting Use() — then one line in app.go
+  ultra dev [--no-web] [--no-infra]   the inner loop in one terminal: boots
+                                  docker-compose.dev.yml, builds and serves,
+                                  then on every .go change rebuilds and
+                                  restarts GRACEFULLY and regenerates
+                                  openapi.json + the typed client (changed
+                                  bytes only). A red build keeps the previous
+                                  binary serving. The frontend dev server runs
+                                  beside it under the same Ctrl-C
   ultra vet [packages] [-fix]     static wiring checks (DI0001-DI0106 graph
                                   family, UV0001-UV0006 lints incl. the
                                   product-structure laws) before anything
