@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/bronystylecrazy/ultrastack/di/diag"
 )
@@ -32,8 +33,17 @@ func run(args []string, out, errW io.Writer) int {
 			fmt.Fprintln(errW, "usage: ultra explain DI0001")
 			return 2
 		}
-		lesson, ok := diag.Lesson(diag.Code(args[1]))
+		lesson, ok := diag.Lesson(diag.Code(strings.ToUpper(args[1])))
 		if !ok {
+			// A preset code (PG0101, AUTH0201) is not a typo and not missing —
+			// it belongs to a package this companion deliberately does not
+			// link. Say where it CAN be explained instead of "unknown".
+			if code := diag.Code(strings.ToUpper(args[1])); isPresetCode(code) {
+				fmt.Fprintf(errW, "%s is a preset code — ultra links no preset, so it cannot explain one.\n"+
+					"Run `./app explain %s` from the product binary that wires it "+
+					"(`./app codes` lists what that binary knows).\n", code, code)
+				return 1
+			}
 			fmt.Fprintf(errW, "unknown code %q — run `ultra codes` for the registry\n", args[1])
 			return 1
 		}
@@ -93,6 +103,29 @@ func run(args []string, out, errW io.Writer) int {
 	return 2
 }
 
+// isPresetCode reports whether a code has the shape of a preset's — four
+// digits behind an uppercase prefix that is not the kernel's DI or the
+// analyzer's UV. It is a shape test, not a lookup: the whole point is that
+// this binary does not have the preset.
+func isPresetCode(c diag.Code) bool {
+	s := string(c)
+	if len(s) < 5 {
+		return false
+	}
+	head, tail := s[:len(s)-4], s[len(s)-4:]
+	for _, r := range tail {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	for _, r := range head {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	return head != "DI" && head != "UV"
+}
+
 func usage(w io.Writer) {
 	fmt.Fprint(w, `ultra — the ultrastack companion
 
@@ -131,8 +164,12 @@ func usage(w io.Writer) {
                                   reverts); --push/--pr publish, --full full tests
   ultra fleet profiles [dir]      group products by capability set (the preset
                                   modules they wire) — descriptive discovery
-  ultra explain <code>            mini-lesson for a diagnostic (e.g. DI0101)
-  ultra codes                     list every diagnostic code
+  ultra explain <code>            mini-lesson for a diagnostic (e.g. DI0101).
+                                  Kernel DIxxxx + analyzer UVxxxx only — a
+                                  PRESET code (PG0101) is explained by the
+                                  product binary: ./app explain PG0101
+  ultra codes                     list every diagnostic code (./app codes adds
+                                  the codes that binary's presets registered)
   ultra diff <old> <new>          semantic diff of two GraphSummary files
                                   (exit 1 when the graphs differ)
   ultra mcp                       Model Context Protocol server over stdio:

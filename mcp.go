@@ -217,8 +217,13 @@ func toolExplain(raw json.RawMessage) (string, error) {
 	if a.Code == "" {
 		return "", fmt.Errorf("explain: code is required")
 	}
-	lesson, ok := diag.Lesson(diag.Code(a.Code))
+	code := diag.Code(strings.ToUpper(a.Code))
+	lesson, ok := diag.Lesson(code)
 	if !ok {
+		if isPresetCode(code) {
+			return "", fmt.Errorf("%s is a preset code — this server links no preset. "+
+				"Run `./app explain %s` in the product that wires it", code, code)
+		}
 		return "", fmt.Errorf("unknown code %q — call the codes tool for the registry", a.Code)
 	}
 	return lesson, nil

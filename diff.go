@@ -12,7 +12,7 @@ import (
 // summary. Shared by the CLI and the mcp `codes` tool.
 func codesText() string {
 	var b strings.Builder
-	for _, c := range diag.AllCodes {
+	for _, c := range diag.AllCodes() {
 		lesson, _ := diag.Lesson(c)
 		fmt.Fprintf(&b, "%s  %s\n", c, firstLine(lesson))
 	}

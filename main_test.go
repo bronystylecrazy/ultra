@@ -29,6 +29,20 @@ func TestExplainUnknownCode(t *testing.T) {
 	}
 }
 
+// A preset code is not a typo: the companion deliberately links no preset, so
+// the miss has to send the reader to the binary that CAN answer.
+func TestExplainPresetCodeRedirectsToTheProductBinary(t *testing.T) {
+	code, _, errOut := runCLI(t, "explain", "PG0101")
+	if code != 1 {
+		t.Fatalf("code=%d err=%q", code, errOut)
+	}
+	for _, want := range []string{"preset code", "./app explain PG0101"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("must mention %q, got: %s", want, errOut)
+		}
+	}
+}
+
 func TestCodesListsRegistry(t *testing.T) {
 	code, out, _ := runCLI(t, "codes")
 	if code != 0 {
