@@ -243,21 +243,31 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 	// --all is the everything-else lever: other dependencies move first, then
 	// the framework pins are trued on top, so --to always wins over -u.
 	if all {
+		stAll := beginStep(errW, "go get -u ./... (--all)")
 		if o, err := runIn(dir, "go", "get", "-u", "./..."); err != nil {
+			stAll.done(false)
 			return fail("go get -u ./...", o)
 		}
+		stAll.done(true)
 	}
 	if err := rewriteRequires(dir, to, upgradeModules); err != nil {
 		return fail("rewriting go.mod", err.Error())
 	}
+	st := beginStep(errW, "go mod tidy")
 	if o, err := runIn(dir, "go", "mod", "tidy"); err != nil {
+		st.done(false)
 		return fail("go mod tidy", o)
 	}
+	st.done(true)
+	st = beginStep(errW, "go build ./...")
 	if o, err := runIn(dir, "go", "build", "./..."); err != nil {
+		st.done(false)
 		return fail("go build ./...", o)
 	}
-
+	st.done(true)
+	st = beginStep(errW, "go test ./...")
 	testOut, testErr := runIn(dir, "go", "test", "./...")
+	st.done(testErr == nil)
 	contracts := "unchanged"
 	var touched []string
 	if testErr != nil {
@@ -276,7 +286,9 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 			undoRefresh()
 			return fail("refreshing the contracts", err.Error())
 		}
+		st = beginStep(errW, "go test ./... (after refresh)")
 		testOut, testErr = runIn(dir, "go", "test", "./...")
+		st.done(testErr == nil)
 		if testErr != nil {
 			undoRefresh()
 			code := fail("go test ./... (after refreshing the contracts)", testOut)
