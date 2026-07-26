@@ -62,6 +62,15 @@ type scaffoldData struct {
 	JWTSecret   string // [auth.jwt] secret, hex, 32 bytes
 	DevUser     string // the seeded username
 	DevPassword string // the seeded password, printed once by `ultra new`
+
+	// --from: the legacy-service on-ramp. Features is the package list app.go
+	// renders (empty for a forward scaffold, so that file is byte-identical
+	// either way); plan carries everything the feature files need. Reverse
+	// scaffolding ADDS to the normal tree — it never replaces it, so a product
+	// born from an OpenAPI document is the same product as any other.
+	Features []string
+	From     string // the source document's name, for the generated prose
+	plan     *fromPlan
 }
 
 // fillDevSeed generates the --auth dev credentials if they are not already
@@ -119,6 +128,9 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		"config.toml.tmpl":  "config.toml",
 		"Taskfile.yml.tmpl": "Taskfile.yml",
 		"gitignore.tmpl":    ".gitignore",
+		// The cross-tool agent entry point. A ROUTER, not the manual: the
+		// loop, the verbs, the laws, and where the vendored doctrine lives.
+		"AGENTS.md.tmpl": "AGENTS.md",
 		// The drift gate: the committed contract artifacts are regenerated
 		// and diffed on every `go test`. The artifacts themselves are NOT
 		// scaffolded — nothing here can run the binary it just wrote, so the
@@ -173,10 +185,42 @@ func scaffold(dir string, d scaffoldData) error {
 	if err := d.fillDevSeed(); err != nil {
 		return err
 	}
+	if d.plan != nil && d.From == "" {
+		d.From = d.plan.Source
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return renderAll(dir, scaffoldFiles(d), d)
+	if err := renderAll(dir, scaffoldFiles(d), d); err != nil {
+		return err
+	}
+	return renderFeatures(dir, d)
+}
+
+// renderFeatures writes the --from feature packages. Each feature is rendered
+// on its own, against its own data, through the same renderAll — so generated
+// Go still goes through go/format and a template that emits garbage is an
+// error here rather than a broken product.
+func renderFeatures(dir string, d scaffoldData) error {
+	if d.plan == nil {
+		return nil
+	}
+	for _, f := range d.plan.Features {
+		f.Source = d.plan.Source
+		base := filepath.Join("internal", "app", f.Pkg)
+		files := map[string]string{
+			"from/feature.go.tmpl": filepath.Join(base, f.Pkg+".go"),
+			"from/handler.go.tmpl": filepath.Join(base, "handler.go"),
+			"from/errors.go.tmpl":  filepath.Join(base, "errors.go"),
+		}
+		if f.HasTypes {
+			files["from/types.go.tmpl"] = filepath.Join(base, "types.go")
+		}
+		if err := renderAll(dir, files, f); err != nil {
+			return fmt.Errorf("feature %s: %w", f.Pkg, err)
+		}
+	}
+	return nil
 }
 
 // renderAll executes each template against data and writes it to its output
@@ -234,10 +278,17 @@ func resolveVersion(flag string) string {
 
 const newUsage = `usage: ultra new <name> [--module github.com/org/name] [--version vX.Y.Z]
                       [--bare] [--db|--no-db] [--web|--no-web] [--auth|--no-auth]
+                      [--from openapi.json]
        ultra new feature <name>
 
   --db --web --auth are ON by default; --bare turns all three off, and a
   later --db/--web/--auth turns one back on.
+
+  --from reverse-scaffolds an EXISTING service: an OpenAPI 3.x document in, a
+  doctrine-shaped product out — one feature package per tag, one api.Handle per
+  operation, request/response structs from the schemas, and every handler a 501
+  stub so the product boots and answers on arrival. JSON only (convert YAML
+  first). It prints a migration report of what came across and what did not.
 `
 
 // cmdNew implements `ultra new <name> [flags]` and `ultra new feature <name>`.
@@ -246,7 +297,7 @@ func cmdNew(args []string, out, errW io.Writer) int {
 		return cmdNewFeature(args[1:], out, errW)
 	}
 
-	var name, module, version string
+	var name, module, version, from string
 	// Defaults on; --bare is the subtractive switch, and it is applied
 	// before the additive ones so `--bare --db` means "core plus db"
 	// regardless of the order they were typed in.
@@ -278,6 +329,8 @@ func cmdNew(args []string, out, errW io.Writer) int {
 			module, rest = rest[1], rest[2:]
 		case a == "--version" && len(rest) > 1:
 			version, rest = rest[1], rest[2:]
+		case a == "--from" && len(rest) > 1:
+			from, rest = rest[1], rest[2:]
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(errW, "unknown flag %q\n%s", a, newUsage)
 			return 2
@@ -304,6 +357,16 @@ func cmdNew(args []string, out, errW io.Writer) int {
 	if err := d.fillDevSeed(); err != nil {
 		fmt.Fprintln(errW, err)
 		return 1
+	}
+	// --from is parsed BEFORE anything is written: a document that cannot be
+	// read must not leave half a product on disk.
+	if from != "" {
+		plan, err := planFrom(from)
+		if err != nil {
+			fmt.Fprintln(errW, err)
+			return 1
+		}
+		d.plan, d.Features = plan, plan.PkgNames()
 	}
 
 	if err := scaffold(name, d); err != nil {
@@ -348,6 +411,13 @@ freshly random — the product is loginnable the minute it boots. BOTH are
 DEV ONLY: delete the seed and wire authpg.Stores() for real users, and move
 the secret to ULTRA_AUTH_JWT_SECRET, before this serves anyone but you.
 `, d.DevUser, d.DevPassword)
+	}
+	if d.plan != nil {
+		// The migration report is the LAST thing printed and the first thing
+		// read: what came across, what was guessed, and what did not — with
+		// the paths that carry it.
+		fmt.Fprint(out, d.plan.report.String())
+		return 0
 	}
 	fmt.Fprint(out, "\nYour first feature:\n  ultra new feature <name>   # internal/app/<name>/<name>.go, then one line in app.Modules()\n")
 	return 0

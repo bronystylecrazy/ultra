@@ -1,0 +1,293 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Depot Registry (legacy)",
+    "version": "2.4.1"
+  },
+  "servers": [{ "url": "https://depots.internal.example.com/api" }],
+  "security": [{ "bearerAuth": [] }],
+  "tags": [{ "name": "Depots" }, { "name": "shipments" }],
+  "webhooks": {
+    "depotRetired": {
+      "post": {
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Depot" } } }
+        },
+        "responses": { "200": { "description": "acknowledged" } }
+      }
+    }
+  },
+  "paths": {
+    "/depots": {
+      "get": {
+        "operationId": "listDepots",
+        "tags": ["Depots"],
+        "summary": "List every depot",
+        "security": [],
+        "parameters": [
+          { "name": "region", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "format": "int32" } },
+          { "name": "X-Legacy-Trace", "in": "header", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "every depot",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Depot" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createDepot",
+        "tags": ["Depots"],
+        "summary": "Register a depot",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/DepotInput" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Depot" } } }
+          },
+          "409": {
+            "description": "a depot with that name exists",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/depots/{depotId}": {
+      "parameters": [
+        { "name": "depotId", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "operationId": "getDepot",
+        "tags": ["Depots"],
+        "summary": "Fetch one depot",
+        "responses": {
+          "200": {
+            "description": "the depot",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Depot" } } }
+          },
+          "404": {
+            "description": "no such depot",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patch depot",
+        "tags": ["Depots"],
+        "summary": "Amend a depot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "notes": { "type": "string", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "the amended depot",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Depot" } } }
+          },
+          "404": {
+            "description": "no such depot",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteDepot",
+        "tags": ["Depots"],
+        "summary": "Retire a depot",
+        "deprecated": true,
+        "responses": {
+          "204": { "description": "retired" },
+          "404": {
+            "description": "no such depot",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/depots/{depotId}/photo": {
+      "post": {
+        "operationId": "uploadDepotPhoto",
+        "tags": ["Depots"],
+        "summary": "Attach a photo",
+        "requestBody": {
+          "content": { "image/png": { "schema": { "type": "string", "format": "binary" } } }
+        },
+        "responses": { "202": { "description": "accepted" } }
+      }
+    },
+    "/shipments": {
+      "get": {
+        "tags": ["shipments"],
+        "summary": "List shipments",
+        "responses": {
+          "200": {
+            "description": "every shipment",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Shipment" } }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "bookShipment",
+        "tags": ["shipments"],
+        "summary": "Book a shipment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "depotId": { "type": "string" },
+                  "parcel": {
+                    "type": "object",
+                    "properties": {
+                      "weightKg": { "type": "number" },
+                      "fragile": { "type": "boolean" }
+                    }
+                  },
+                  "labels": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["depotId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "booked",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Shipment" } } }
+          },
+          "422": {
+            "description": "the parcel was refused",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        },
+        "callbacks": {
+          "onDelivered": {
+            "{$request.body#/callbackUrl}": {
+              "post": { "responses": { "200": { "description": "acknowledged" } } }
+            }
+          }
+        }
+      }
+    },
+    "/shipments/{id}/cancel": {
+      "post": {
+        "operationId": "cancelShipment",
+        "tags": ["shipments"],
+        "summary": "Cancel a shipment",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "cancelled",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Shipment" } } }
+          },
+          "409": {
+            "description": "already delivered",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/shipments/report.csv": {
+      "get": {
+        "operationId": "exportShipments",
+        "tags": ["shipments"],
+        "summary": "The nightly manifest",
+        "responses": {
+          "200": {
+            "description": "csv",
+            "content": { "text/csv": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Depot": {
+        "type": "object",
+        "description": "A physical depot the fleet loads from.",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "active": { "type": "boolean" },
+          "coordinates": {
+            "type": "object",
+            "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } }
+          },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "metadata": { "type": "object", "additionalProperties": { "type": "string" } },
+          "retiredAt": { "type": ["string", "null"], "format": "date-time" }
+        },
+        "required": ["id", "name"]
+      },
+      "DepotInput": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "notes": { "type": "string", "nullable": true }
+        },
+        "required": ["name"]
+      },
+      "ShipmentBase": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["draft", "booked", "delivered"] },
+          "weightKg": { "type": "number", "format": "float" }
+        }
+      },
+      "Shipment": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ShipmentBase" },
+          {
+            "type": "object",
+            "properties": {
+              "depot": { "$ref": "#/components/schemas/Depot" },
+              "payload": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "$ref": "#/components/schemas/Depot" }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  }
+}

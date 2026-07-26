@@ -1,0 +1,72 @@
+# {{.Name}}
+
+A product on **ultrastack** — one repo, one module, one binary. `main.go` is the
+root page (`var App = di.Options(ultra.New(...))`); `internal/app/app.go` is the
+only file that knows the feature list.
+{{if .From}}
+Migrated from `{{.From}}` with `ultra new --from`: every operation is wired and
+answers, but the handlers are **501 stubs** (`<feature>.<op>.not_implemented`)
+until they are ported. Fill ONE stub at a time and keep the loop below green —
+that is the whole migration plan.
+{{end}}
+This file is a ROUTER, not the manual. It tells you where to look.
+
+## The loop (non-negotiable, in this order)
+
+1. `ultra vet ./...` — static wiring checks before anything runs. `-fix` applies
+   the edits marked `[fixable]`; the rest need a decision.
+2. `ultra explain <code>` for a kernel/analyzer code (`DI0101`, `UV0004`), or
+   `go run . explain <code>` for a preset code (`PG0101`, `AUTH0201` — this
+   binary knows the codes its own presets registered). **Never fix a diagnostic
+   from memory:** the code carries the remedy, and the remedy changes.
+3. `go doc github.com/bronystylecrazy/ultrastack/contrib/api Handle` — read the
+   signature. Never guess an API.
+4. `go test ./...` after every change. `TestWiring` is the covenant: if
+   `stack.Validate(App)` passes, `main` boots. `TestContractDrift` names any
+   contract you changed — run `task contracts` and **commit the diff**; that
+   diff is the change's blast radius, and hiding it is the bug.
+
+## The verbs
+
+```
+task dev          the whole inner loop in one terminal (= ultra dev): dev infra,
+                  watch, rebuild, graceful restart, fresh contracts{{if .Web}}, web HMR{{end}}
+task test         the covenant, the boot smoke, the drift gates
+task contracts    regenerate the COMMITTED artifacts (openapi.json{{if .Web}} + the client{{end}})
+{{- if .Web}}
+task e2e          the golden path in a real browser against the built binary
+{{- end}}
+go run . <cmd>    the binary is the toolbox: routes, graph, doctor, codes,
+                  config init, config reference, infra compose, openapi{{if .Web}}, client{{end}}
+```
+
+A dev build serves **no frontend** by design — a 404 at `/` means you wanted
+{{if .Web}}`task dev:web` or a `-tags embedspa` build{{else}}the embedspa build{{end}}, not a bug fix.
+
+## The laws (review-blockers)
+
+- **Features never import features** (UV0004). A cross-feature need is an
+  interface declared by the CONSUMER, bound with `di.Alias` in `app.go`.
+- **Contracts are declared once, in Go.** `openapi.json`{{if .Web}} and
+  `web/src/lib/api/`{{end}} are DERIVED and committed — never hand-edit them;
+  fix the Go contract and run `task contracts`.
+- **Every operation declares `api.Require("perm")` or `api.Public()`.** Auth is
+  secure-by-default; forgetting is a boot error, not a silent hole.
+- **File names come from a closed set** plus the domain's nouns: `<pkg>.go`,
+  `handler.go`, `types.go`, `deps.go`, `errors.go`, `*_test.go` (UV0003).
+  `handler_users.go` and `service_billing.go` do not exist — split the domain
+  into a package, never the file into layer shards.
+- **Error codes in `errors.go` are contracts.** Clients localize from them and
+  they ride OpenAPI's `x-error-codes`. Never rename a shipped code — add one.
+- **A bug fix lands with the test that would have caught it**; a feature lands
+  with one test of its central claim.
+
+## The full doctrine
+
+`.claude/skills/ultrastack/` — the framework's own SKILL.md and `references/`,
+vendored at the EXACT version this product's `go.mod` pins. If that directory is
+absent, run `ultra skill install`; if it disagrees with the pin,
+`ultra skill install --check` says so.
+
+`ultra contrib list` prints this product's capabilities: the presets it wires
+(with the spelling it used) and the ones it has not.

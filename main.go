@@ -137,8 +137,19 @@ func usage(w io.Writer) {
 
   ultra new <name> [--module m]   scaffold a product on the paved road:
                                   main.go + internal/app + config.toml +
-                                  Taskfile. --db --web --auth are on by
-                                  default; --bare strips to the core
+                                  Taskfile + AGENTS.md. --db --web --auth are
+                                  on by default; --bare strips to the core
+  ultra new <name> --from doc.json   REVERSE scaffolding, the legacy-service
+                                  on-ramp: an OpenAPI 3.x document in, a
+                                  doctrine-shaped product out — a feature
+                                  package per tag, one api.Handle per
+                                  path+method, request/response structs from the
+                                  schemas, and every handler a 501 stub
+                                  (<feature>.<op>.not_implemented) so the product
+                                  boots and answers on arrival. Prints a
+                                  migration report: what came across, what was
+                                  guessed, and — by path — what did not (JSON
+                                  only; convert YAML first)
   ultra new feature <name>        one file at internal/app/<name>/<name>.go
                                   exporting Use() — then one line in app.go
   ultra dev [--no-web] [--no-infra]   the inner loop in one terminal: boots

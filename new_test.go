@@ -52,8 +52,8 @@ func TestScaffoldValidatesInput(t *testing.T) {
 // never comes back.
 func TestFlagsShapeTheTree(t *testing.T) {
 	core := []string{
-		".gitignore", "Taskfile.yml", "config.toml", "contract_test.go", "go.mod",
-		"internal/app/app.go", "main.go", "main_test.go",
+		".gitignore", "AGENTS.md", "Taskfile.yml", "config.toml", "contract_test.go",
+		"go.mod", "internal/app/app.go", "main.go", "main_test.go",
 	}
 	web := []string{
 		"spa.go", "spa_embed.go",

@@ -1,0 +1,14 @@
+// The domain nouns, translated from {{.Source}}'s component schemas.
+//
+// A component two features both use cannot be shared — features never import
+// features — so it is generated in each, package-qualified the same way the api
+// generators disambiguate a cross-package type name. When a shared noun turns
+// out to be a real seam, the fix is doctrine, not a copy: declare the interface
+// in the CONSUMER and bind it in internal/app/app.go.
+package {{.Pkg}}
+{{if .TypeImports}}
+import (
+	{{.TypeImports}}
+)
+{{end}}
+{{.TypeDefs}}

@@ -1,0 +1,28 @@
+// Package {{.Pkg}} — {{.Doc}}.
+//
+// REVERSE-SCAFFOLDED by `ultra new --from {{.Source}}` (tag {{printf "%q" .Tag}}),
+// then owned by hand. Every operation below is wired and answers; every handler
+// in handler.go is a 501 stub until you port it. Fill them ONE at a time —
+// `task test` (wiring + boot + contract drift) stays green the whole way, which
+// is the entire reason the stubs exist.
+package {{.Pkg}}
+
+import (
+	"github.com/bronystylecrazy/ultrastack/contrib/api"
+	"github.com/bronystylecrazy/ultrastack/di"
+)
+
+// Use is the front page of the feature: its whole wiring at a glance. One
+// api.Handle per operation the source document described — the contract is
+// declared HERE, in Go, and openapi.json is derived from it (never the other
+// way round; the source document has done its job).
+//
+// As the port grows a handler past a closure — a store, a client, a clock —
+// move to the taught Handler idiom: a `Handler` struct in handler.go with
+// `Routes(r *api.Router)`, `di.Provide(NewHandler)` and `api.Routes[*Handler]()`
+// on this page. The contract does not change when you do.
+func Use() di.Reg {
+	return di.Pkg(
+		{{.Wiring}}
+	)
+}
