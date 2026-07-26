@@ -56,7 +56,7 @@ var App = di.Options(
 {{if .DB}}
 		pg.Use(),      // [postgres]: the pool, dialed in Start
 		migrate.Use(), // goose, applied before anything serves
-		migrate.Files("{{.Name}}", migrations, "internal/db/migrations"),
+		migrate.Files("app", migrations, "internal/db/migrations"), // "app": ONE central domain timeline; identifier-safe by construction
 {{end}}
 {{- if .Auth}}
 		// Secure by default: every op declares api.Require or api.Public and
