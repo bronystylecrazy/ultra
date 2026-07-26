@@ -47,7 +47,7 @@ var migrations embed.FS
 // var only while it has a single writer.
 var App = di.Options(
 	stack.Product( // *slog.Logger + HTTP on :8080 + /healthz, /ops/*
-		conf.Load(),   // config.toml (ULTRA_CONFIG overrides the path)
+		conf.Use(),   // config.toml (ULTRA_CONFIG overrides the path)
 		zlog.Use(), // [log]: zerolog behind the *slog.Logger seam
 
 		// The typed edge. Contracts are declared once, in Go, with logical
