@@ -19,6 +19,14 @@ tasks:
     cmds:
       - go run . client --out web/src/lib/api
 {{end}}
+  contracts:
+    desc: Refresh the COMMITTED derived artifacts — the fix TestContractDrift asks for
+    cmds:
+      - go run . openapi > openapi.json
+{{- if .Web}}
+      - go run . client --out web/src/lib/api
+{{- end}}
+
   test:
     desc: The covenant first — wiring, then boot, then everything else
     cmds:
@@ -53,3 +61,30 @@ tasks:
     cmds:
       - task: build
       - ./bin/{{.Name}}
+{{if .Web}}
+  e2e:
+    desc: The golden path in a real browser, against the real single binary
+    silent: true # the recipe below is a script; echoing it twice helps no one
+    cmds:
+      - |
+        # Degrades to a SKIP when the browser toolchain is absent: a machine
+        # without node must not go red for a tier it cannot run. `task verify`
+        # deliberately does not call this — `task test` is the always-green set.
+        command -v bun >/dev/null 2>&1 || { echo "task e2e: skipped — bun not found (see web/e2e/golden.spec.ts)"; exit 0; }
+        command -v npx >/dev/null 2>&1 || { echo "task e2e: skipped — npx not found (node, then in web/: npm i -D @playwright/test)"; exit 0; }
+        set -e
+        # This verb BUILDS; playwright.config.ts boots and kills the binary
+        # (Playwright owns the server's lifetime, so a failed run never leaves
+        # one listening). With BASE_URL set the spec runs against that instance
+        # and nothing local is built at all.
+        if [ -z "$BASE_URL" ]; then
+          echo "task e2e: building the frontend, then the embedspa binary"
+          cd web && bun install && bun run build && cd ..
+          go build -tags embedspa -o bin/{{.Name}}-e2e .
+        fi
+        cd web
+        # The browser build is a one-time ~100MB download, a no-op after that;
+        # without it there is nothing to drive.
+        npx playwright install chromium
+        npx playwright test
+{{end}}

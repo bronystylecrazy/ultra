@@ -52,12 +52,13 @@ func TestScaffoldValidatesInput(t *testing.T) {
 // never comes back.
 func TestFlagsShapeTheTree(t *testing.T) {
 	core := []string{
-		".gitignore", "Taskfile.yml", "config.toml", "go.mod",
+		".gitignore", "Taskfile.yml", "config.toml", "contract_test.go", "go.mod",
 		"internal/app/app.go", "main.go", "main_test.go",
 	}
 	web := []string{
 		"spa.go", "spa_embed.go",
-		"web/.gitignore", "web/package.json", "web/src/app.html",
+		"web/.gitignore", "web/e2e/golden.spec.ts", "web/package.json",
+		"web/playwright.config.ts", "web/src/app.html",
 		"web/src/lib/api/.gitkeep", "web/src/lib/api/vite.proxy.json",
 		"web/src/routes/+layout.ts", "web/src/routes/+page.svelte",
 		"web/svelte.config.js", "web/tsconfig.json", "web/vite.config.ts",
@@ -260,6 +261,48 @@ func TestScaffoldCovenant(t *testing.T) {
 			sh("go", "mod", "tidy")
 			sh("go", "build", "./...")
 			sh("go", "test", "./...")
+
+			// The drift gate, proven end to end. The first `go test`
+			// BOOTSTRAPPED the committed contract artifacts (nothing can
+			// generate them at scaffold time — they come out of the binary
+			// that does not exist yet), so they must now be on disk...
+			artifacts := []string{"openapi.json"}
+			if d.Web {
+				artifacts = append(artifacts, "web/src/lib/api/common.ts")
+			}
+			for _, f := range artifacts {
+				if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+					t.Fatalf("the drift gate did not bootstrap %s: %v", f, err)
+				}
+			}
+			// ...a second run must be clean (the generators are
+			// deterministic, so a committed artifact never drifts on its
+			// own)...
+			sh("go", "test", "./...")
+			// ...and a doctored artifact must fail with the refresh command.
+			doc := filepath.Join(dir, "openapi.json")
+			original, err := os.ReadFile(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(doc,
+				bytes.Replace(original, []byte(`"openapi": "3.1.0"`), []byte(`"openapi": "3.0.0"`), 1),
+				0o644); err != nil {
+				t.Fatal(err)
+			}
+			drift := exec.Command("go", "test", "-run", "TestContractDrift", ".")
+			drift.Dir = dir
+			out, err := drift.CombinedOutput()
+			if err == nil {
+				t.Errorf("a doctored openapi.json must fail TestContractDrift:\n%s", out)
+			}
+			if !strings.Contains(string(out), "task contracts") {
+				t.Errorf("the drift failure must name the refresh command:\n%s", out)
+			}
+			t.Logf("drift detected as designed:\n%s", out)
+			if err := os.WriteFile(doc, original, 0o644); err != nil {
+				t.Fatal(err)
+			}
 
 			if d.Web {
 				// The prod half of the build-tag pair only compiles once the

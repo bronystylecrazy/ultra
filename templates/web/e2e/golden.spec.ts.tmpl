@@ -1,0 +1,52 @@
+// THE golden path: ONE spec, the whole sandwich — the single binary serving
+// the embedded SPA, driven by a real browser.
+//
+//	task e2e                                  # build → boot → run → kill
+//	BASE_URL=https://staging.example task e2e # ...or a deployed instance
+//
+// No setup: `task e2e` runs `bun install` and fetches the chromium build the
+// first time (a one-time ~100MB download), and skips with a note on a machine
+// without bun/npx. By hand it is: cd web && bun install && bunx playwright install chromium.
+//
+// GROW this file; do not multiply it. Your product's ONE core flow belongs
+// here — the flow whose breakage means the product is down. Everything
+// narrower is a Go test one tier down: 100x faster, and it names the fix.
+import { expect, test } from '@playwright/test';
+
+test('the shell renders and the API answers', async ({ page, request }) => {
+	// Fail loudly on an uncaught exception: a page that "loads" while its
+	// hydration threw is the failure a curl 200 always misses.
+	const crashes: string[] = [];
+	page.on('pageerror', (err) => crashes.push(String(err)));
+
+	// The API half of the sandwich.
+	const health = await request.get('/healthz');
+{{- if .Auth}}
+	// auth.Protect guards ops too, so 401 IS the healthy anonymous answer —
+	// the same claim main_test.go's boot smoke makes.
+	expect(health.status()).toBe(401);
+{{- else}}
+	expect(health.ok()).toBeTruthy();
+{{- end}}
+
+	// The frontend half: the EMBEDDED build boots and hydrates.
+	await page.goto('/');
+	await expect(page.getByRole('heading', { name: '{{.Name}}' })).toBeVisible();
+	expect(crashes).toEqual([]);
+});
+
+// TODO — replace the smoke above with the flow itself. The shape:
+//
+{{- if .Auth}}
+//	- log in. The scaffold seeds NO credentials (contrib/auth starts with
+//	  empty in-memory stores), so give the run a user first — a `seed` CLI
+//	  command on the binary, or a dev database that already has one:
+//	    await page.goto('/login');
+//	    await page.getByLabel('Email').fill(process.env.E2E_USER ?? 'dev@example.com');
+//	    await page.getByLabel('Password').fill(process.env.E2E_PASS ?? 'dev');
+//	    await page.getByRole('button', { name: 'Sign in' }).click();
+{{- end}}
+//	- do the one thing the product exists to do (create the record, run the
+//	  import, submit the form) through the UI, never through the API.
+//	- assert the RESULT a user would look for — the row on the screen, not an
+//	  HTTP status. The status is already covered one tier down.

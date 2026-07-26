@@ -1,0 +1,39 @@
+// Playwright lives INSIDE web/ so it resolves through web/node_modules — the
+// same install the frontend already needs, and no second package.json anywhere.
+//
+//	task e2e                                  # build → boot → run → kill
+//	BASE_URL=https://staging.example task e2e # ...or a deployed instance
+//
+// A FIXED high port, never ":0" — the kernel would pick a port nothing could
+// report back. Taken? E2E_PORT=9001 task e2e.
+import { defineConfig, devices } from '@playwright/test';
+
+const port = process.env.E2E_PORT ?? '8391';
+const baseURL = process.env.BASE_URL ?? `http://127.0.0.1:${port}`;
+
+export default defineConfig({
+	testDir: 'e2e',
+	// One golden path, one browser, one worker: this tier proves the sandwich
+	// holds together. Breadth belongs to the Go tiers, which are 100x faster.
+	workers: 1,
+	timeout: 30_000,
+	reporter: 'list',
+	use: { baseURL, trace: 'retain-on-failure' },
+	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+	// With no BASE_URL, Playwright OWNS the binary's lifetime: it starts it,
+	// waits for the shell to answer, and kills it afterwards — on failure and
+	// on ^C too, which a backgrounded shell process with a trap does not do
+	// reliably. `task e2e` only builds; this starts. reuseExistingServer stays
+	// off on purpose: a stale server on the port must be a loud error, never a
+	// silent test of yesterday's build (learned the hard way).
+	webServer: process.env.BASE_URL
+		? undefined
+		: {
+				command: `./bin/{{.Name}}-e2e`,
+				cwd: '..', // the product root: the binary reads config.toml from here
+				env: { ULTRA_HTTP_ADDR: `:${port}` },
+				url: `http://127.0.0.1:${port}/`, // the SPA shell is public even under auth
+				reuseExistingServer: false,
+				timeout: 30_000,
+			},
+});

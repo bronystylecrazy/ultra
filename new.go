@@ -68,6 +68,11 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		"config.toml.tmpl":  "config.toml",
 		"Taskfile.yml.tmpl": "Taskfile.yml",
 		"gitignore.tmpl":    ".gitignore",
+		// The drift gate: the committed contract artifacts are regenerated
+		// and diffed on every `go test`. The artifacts themselves are NOT
+		// scaffolded — nothing here can run the binary it just wrote, so the
+		// test bootstraps them on its first run and then guards them.
+		"contract_test.go.tmpl": "contract_test.go",
 		// The product itself: the ONLY file that knows the feature list.
 		"app.go.tmpl": "internal/app/app.go",
 	}
@@ -89,6 +94,11 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		// A seed of the generated dev proxy so `task dev:web` forwards
 		// correctly before the first `task gen`; that command rewrites it.
 		files["web/src/lib/api/vite.proxy.json.tmpl"] = "web/src/lib/api/vite.proxy.json"
+		// The golden path: ONE browser spec, inside web/ so it resolves
+		// through the install the frontend already needs. `task e2e` builds,
+		// boots, runs, and kills — and skips with a note without bun/npx.
+		files["web/playwright.config.ts.tmpl"] = "web/playwright.config.ts"
+		files["web/e2e/golden.spec.ts.tmpl"] = "web/e2e/golden.spec.ts"
 	}
 	if d.DB {
 		// Central persistence: ONE migration line, per-domain query files,
@@ -260,11 +270,14 @@ replace directives in go.mod to build against a local checkout)
 		return 1
 	}
 
-	fmt.Fprintf(out, "\n%s is ready:\n  cd %s\n  task test        # the covenant: wiring + boot\n  task dev:api     # serve on :8080 (a dev build serves NO frontend — by design)\n",
+	fmt.Fprintf(out, "\n%s is ready:\n  cd %s\n  task test        # the covenant: wiring + boot, then the contract gate\n  task dev:api     # serve on :8080 (a dev build serves NO frontend — by design)\n",
 		name, name)
 	if d.Web {
 		fmt.Fprint(out, "  task dev:web     # the SvelteKit dev server (bun install first)\n")
+		fmt.Fprint(out, "  task e2e         # the golden path in a browser (bun + npx playwright)\n")
 	}
+	fmt.Fprintf(out, "\nThe first `task test` writes the committed contract artifacts —\nopenapi.json%s. Add them to the first commit:\nfrom then on a contract change that forgets `task contracts` fails the test.\n",
+		map[bool]string{true: " and web/src/lib/api", false: ""}[d.Web])
 	fmt.Fprint(out, "\nYour first feature:\n  ultra new feature <name>   # internal/app/<name>/<name>.go, then one line in app.Modules()\n")
 	return 0
 }

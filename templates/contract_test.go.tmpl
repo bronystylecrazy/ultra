@@ -1,0 +1,279 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+{{- if .Web}}
+	"path/filepath"
+{{- end}}
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/bronystylecrazy/ultrastack/cli"
+)
+
+// The contract is DERIVED, and the derived artifacts are COMMITTED:
+// openapi.json at the product root{{if .Web}}, plus the typed client under
+// web/src/lib/api{{end}}. This file regenerates them from the running graph and
+// diffs. Change a contract without refreshing and the test fails here with the
+// diff — so every pull request shows its own blast radius instead of hiding it
+// behind "regenerate later".
+//
+//	task contracts     # the refresh; then commit what it changed
+//
+// Never hand-edit an artifact: fix the Go contract and regenerate.
+
+const (
+	contractFile = "openapi.json"
+	// refresh is the one command every failure below points at.
+	refresh = "task contracts   (= go run . openapi > openapi.json{{if .Web}} && go run . client --out web/src/lib/api{{end}})"
+)
+
+// TestContractDrift: the OpenAPI document the code describes vs. the one the
+// repository ships.
+func TestContractDrift(t *testing.T) {
+	got := openAPIDoc(t)
+
+	committed, err := os.ReadFile(contractFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		// Bootstrap, exactly once: a freshly scaffolded product has no
+		// document yet (the scaffold cannot run a binary it has only just
+		// written). Write it and PASS — from the moment it is committed this
+		// is a gate, and `git status` shows what to add.
+		if err := os.WriteFile(contractFile, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s from the current contracts — commit it: git add %s", contractFile, contractFile)
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := normalizeJSON(committed)
+	if err != nil {
+		t.Fatalf("%s is not valid JSON (%v) — regenerate it: %s", contractFile, err, refresh)
+	}
+	if bytes.Equal(want, got) {
+		return
+	}
+	t.Fatalf("the API contract changed but %s was not regenerated:\n%s\nrefresh:\n  %s",
+		contractFile, contractSummary(want, got), refresh)
+}
+
+// openAPIDoc runs the product's own `openapi` command in-process — the same
+// code path `go run . openapi` takes — and returns the normalized document.
+func openAPIDoc(t *testing.T) []byte {
+	t.Helper()
+	code, out, errOut := cli.Test([]string{"openapi"}, App)
+	if code != 0 {
+		t.Fatalf("go run . openapi failed (%d):\n%s", code, errOut)
+	}
+	doc, err := normalizeJSON([]byte(out))
+	if err != nil {
+		t.Fatalf("openapi did not print JSON: %v\n%s", err, out)
+	}
+	return doc
+}
+
+// normalizeJSON re-encodes a document so the comparison is about CONTENT:
+// object keys land in sorted order (encoding/json sorts map keys) with one
+// fixed indentation and one trailing newline, so an editor's whitespace or a
+// pretty-printer's mood can never fail this test.
+func normalizeJSON(b []byte) ([]byte, error) {
+	var v any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// contractSummary renders the difference the way a reviewer reads it: which
+// operations appeared, vanished, or were renamed. When the operation set is
+// unchanged (a schema, a response, a parameter moved instead), it falls back
+// to a capped line diff of the pretty-printed documents.
+func contractSummary(want, got []byte) string {
+	wantOps, gotOps := operations(want), operations(got)
+	keys := make([]string, 0, len(wantOps)+len(gotOps))
+	for k := range wantOps {
+		keys = append(keys, k)
+	}
+	for k := range gotOps {
+		if _, ok := wantOps[k]; !ok {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+
+	var b strings.Builder
+	for _, k := range keys {
+		w, inWant := wantOps[k]
+		g, inGot := gotOps[k]
+		switch {
+		case !inWant:
+			fmt.Fprintf(&b, "  + %s  (%s)\n", k, g)
+		case !inGot:
+			fmt.Fprintf(&b, "  - %s  (%s)\n", k, w)
+		case w != g:
+			fmt.Fprintf(&b, "  ~ %s  operationId %s → %s\n", k, w, g)
+		}
+	}
+	if b.Len() == 0 {
+		b.WriteString(lineDiff(want, got))
+	}
+	return b.String()
+}
+
+// operations flattens paths → "METHOD /path" → operationId. Anything under a
+// path item that is not an operation object (a summary string, a shared
+// parameter list, a vendor extension) simply does not unmarshal, and is
+// skipped rather than fought.
+func operations(doc []byte) map[string]string {
+	var parsed struct {
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	ops := map[string]string{}
+	if err := json.Unmarshal(doc, &parsed); err != nil {
+		return ops
+	}
+	for path, item := range parsed.Paths {
+		for method, raw := range item {
+			var op struct {
+				OperationID string `json:"operationId"`
+			}
+			if err := json.Unmarshal(raw, &op); err != nil {
+				continue
+			}
+			ops[strings.ToUpper(method)+" "+path] = op.OperationID
+		}
+	}
+	return ops
+}
+
+// lineDiff reports the first differing lines, capped — enough to recognize the
+// change, never a wall of JSON.
+func lineDiff(want, got []byte) string {
+	w := strings.Split(string(want), "\n")
+	g := strings.Split(string(got), "\n")
+	at := func(lines []string, i int) string {
+		if i < len(lines) {
+			return lines[i]
+		}
+		return ""
+	}
+	var b strings.Builder
+	shown := 0
+	for i := 0; i < len(w) || i < len(g); i++ {
+		lw, lg := at(w, i), at(g, i)
+		if lw == lg {
+			continue
+		}
+		if shown == 8 {
+			fmt.Fprintf(&b, "  … and more\n")
+			break
+		}
+		fmt.Fprintf(&b, "  %d: -%s\n  %d: +%s\n", i+1, strings.TrimRight(lw, " "), i+1, strings.TrimRight(lg, " "))
+		shown++
+	}
+	return b.String()
+}
+{{if .Web}}
+// clientDir holds the generated TypeScript client. It is committed for the
+// same reason openapi.json is: the diff is the contract's blast radius on the
+// frontend, reviewed with the change that caused it.
+const clientDir = "web/src/lib/api"
+
+// TestClientDrift: the typed client the contracts imply vs. the one the
+// repository ships. Same gate, other end of the wire.
+func TestClientDrift(t *testing.T) {
+	// Bootstrap: a fresh scaffold ships a seed dev proxy and nothing else, so
+	// the first run GENERATES the client in place and passes. Commit it, and
+	// every later run is a diff.
+	if _, err := os.Stat(filepath.Join(clientDir, "common.ts")); errors.Is(err, fs.ErrNotExist) {
+		generateClient(t, clientDir)
+		t.Logf("generated %s from the current contracts — commit it: git add %s", clientDir, clientDir)
+		return
+	}
+
+	fresh := t.TempDir()
+	generateClient(t, fresh)
+
+	committed := treeOf(t, clientDir)
+	generated := treeOf(t, fresh)
+
+	var added, removed, changed []string
+	for name, body := range generated {
+		switch old, ok := committed[name]; {
+		case !ok:
+			added = append(added, name)
+		case old != body:
+			changed = append(changed, name)
+		}
+	}
+	for name := range committed {
+		if _, ok := generated[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	if len(added)+len(removed)+len(changed) == 0 {
+		return
+	}
+	var b strings.Builder
+	report := func(mark string, files []string) {
+		sort.Strings(files)
+		for _, f := range files {
+			fmt.Fprintf(&b, "  %s %s/%s\n", mark, clientDir, f)
+		}
+	}
+	report("+", added)
+	report("-", removed)
+	report("~", changed)
+	t.Fatalf("the contracts changed but %s was not regenerated:\n%s\nrefresh:\n  %s",
+		clientDir, b.String(), refresh)
+}
+
+// generateClient runs the product's own `client` command in-process.
+func generateClient(t *testing.T, out string) {
+	t.Helper()
+	code, _, errOut := cli.Test([]string{"client", "--out", out}, App)
+	if code != 0 {
+		t.Fatalf("go run . client --out %s failed (%d):\n%s", out, code, errOut)
+	}
+}
+
+// treeOf reads a directory into path → content. .gitkeep is the scaffold's
+// placeholder, not a generated file: it is never part of the comparison.
+func treeOf(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if err != nil || e.IsDir() || e.Name() == ".gitkeep" {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(rel)] = string(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+{{end}}
