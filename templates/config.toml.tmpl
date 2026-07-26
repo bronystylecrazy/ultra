@@ -30,11 +30,15 @@ absolute = "12h"  # hard cap per session
 # secure_cookie = true   # require HTTPS — turn this on in production
 
 [auth.jwt]
-# The HS256 signing key for POST /auth/token; at least 32 bytes. Keep it out
-# of the file in real deployments: ULTRA_AUTH_JWT_SECRET.
-# secret = ""
+# The HS256 signing key for POST /auth/token — generated fresh for this
+# product so it mints tokens on the first boot instead of answering
+# auth.jwt_unconfigured. DEV SECRET: rotate it for production and keep it out
+# of the file entirely there — ULTRA_AUTH_JWT_SECRET wins over this line.
+secret = "{{.JWTSecret}}"
 
 [auth.roles]
-# role → permissions, hot-reloadable: edits apply without a restart.
+# role → permissions, hot-reloadable: edits apply without a restart. The
+# seeded dev user in main.go holds "admin", so "*" is what makes it able to
+# call everything while you build.
 admin = ["*"]
 {{end}}

@@ -9,6 +9,9 @@ import (
 {{- if .DB}}
 	"net/url"
 {{- end}}
+{{- if .Auth}}
+	"strings"
+{{- end}}
 	"testing"
 {{- if .DB}}
 	"time"
@@ -48,7 +51,8 @@ func TestBoot(t *testing.T) {
 	}
 	defer app.Stop(ctx)
 
-	resp, err := http.Get("http://" + di.MustGet[*fib.Server](app).Addr() + "/healthz")
+	base := "http://" + di.MustGet[*fib.Server](app).Addr()
+	resp, err := http.Get(base + "/healthz")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,6 +64,22 @@ func TestBoot(t *testing.T) {
 	// a surprise to discover at 3am.
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("healthz: got %d, want 401 (auth.Protect guards ops too)", resp.StatusCode)
+	}
+
+	// ...and something can actually get IN. A product whose login routes are
+	// mounted over an empty user store, or whose [auth.jwt] secret is missing,
+	// boots perfectly and can never be signed in to — so the boot smoke proves
+	// a real sign-in, not just a 401. When you delete the dev seed from main.go
+	// (as you must), delete this too.
+	tok, err := http.Post(base+"/auth/token", "application/json",
+		strings.NewReader(`{"username":"{{.DevUser}}","password":"{{.DevPassword}}"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tok.Body.Close()
+	if tok.StatusCode != http.StatusOK {
+		t.Fatalf("POST /auth/token with the dev seed: got %d, want 200 — the scaffolded "+
+			"product must be loginnable (check the seed in main.go and [auth.jwt] secret)", tok.StatusCode)
 	}
 {{- else}}
 	if resp.StatusCode != http.StatusOK {

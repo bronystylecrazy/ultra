@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"go/format"
 	"io"
@@ -49,6 +51,55 @@ type scaffoldData struct {
 	DB        bool   // --db:   pg + migrate + internal/db
 	Web       bool   // --web:  SPA seam + web/ SvelteKit skeleton
 	Auth      bool   // --auth: contrib/auth wired and enforcing
+
+	// The --auth dev seed. A scaffold that mounts login routes over an empty
+	// user store and a commented-out signing key is un-loginnable on arrival,
+	// silently — POST /auth/token can only answer auth.jwt_unconfigured or bad
+	// credentials. These two make the generated product actually work the
+	// minute it boots, and both are freshly random per scaffold so no two
+	// products ever share one (and no default can leak into production by
+	// being the value everybody has). Filled by fillDevSeed.
+	JWTSecret   string // [auth.jwt] secret, hex, 32 bytes
+	DevUser     string // the seeded username
+	DevPassword string // the seeded password, printed once by `ultra new`
+}
+
+// fillDevSeed generates the --auth dev credentials if they are not already
+// set. Called by cmdNew (which prints them) and by scaffold (so a direct
+// caller — a test, an embedder — never renders a product with a blank signing
+// key). Idempotent: already-set values are kept.
+func (d *scaffoldData) fillDevSeed() error {
+	if !d.Auth {
+		return nil
+	}
+	if d.DevUser == "" {
+		d.DevUser = "dev"
+	}
+	if d.JWTSecret == "" {
+		// 32 bytes → 64 hex chars, comfortably over the HS256 minimum that
+		// auth.Config.Validate enforces.
+		s, err := randomHex(32)
+		if err != nil {
+			return err
+		}
+		d.JWTSecret = s
+	}
+	if d.DevPassword == "" {
+		p, err := randomHex(9) // 18 hex chars: typeable, not guessable
+		if err != nil {
+			return err
+		}
+		d.DevPassword = p
+	}
+	return nil
+}
+
+func randomHex(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating a dev secret: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -118,6 +169,9 @@ func scaffold(dir string, d scaffoldData) error {
 	}
 	if _, err := os.Stat(dir); err == nil {
 		return fmt.Errorf("%s already exists — refusing to overwrite", dir)
+	}
+	if err := d.fillDevSeed(); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -244,6 +298,13 @@ func cmdNew(args []string, out, errW io.Writer) int {
 	}
 	d.Name, d.Module = name, module
 	d.Version, d.GoVersion = resolveVersion(version), scaffoldGoVersion
+	// Generated here rather than inside scaffold so the credentials can be
+	// printed below — a dev login nobody is told about is the silence this
+	// exists to end.
+	if err := d.fillDevSeed(); err != nil {
+		fmt.Fprintln(errW, err)
+		return 1
+	}
 
 	if err := scaffold(name, d); err != nil {
 		fmt.Fprintln(errW, err)
@@ -278,6 +339,16 @@ replace directives in go.mod to build against a local checkout)
 	}
 	fmt.Fprintf(out, "\nThe first `task test` writes the committed contract artifacts —\nopenapi.json%s. Add them to the first commit:\nfrom then on a contract change that forgets `task contracts` fails the test.\n",
 		map[bool]string{true: " and web/src/lib/api", false: ""}[d.Web])
+	if d.Auth {
+		fmt.Fprintf(out, `
+  dev login: %s / %s
+
+That user is seeded in main.go and the [auth.jwt] secret in config.toml is
+freshly random — the product is loginnable the minute it boots. BOTH are
+DEV ONLY: delete the seed and wire authpg.Stores() for real users, and move
+the secret to ULTRA_AUTH_JWT_SECRET, before this serves anyone but you.
+`, d.DevUser, d.DevPassword)
+	}
 	fmt.Fprint(out, "\nYour first feature:\n  ultra new feature <name>   # internal/app/<name>/<name>.go, then one line in app.Modules()\n")
 	return 0
 }
