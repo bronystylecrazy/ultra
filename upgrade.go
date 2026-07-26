@@ -24,7 +24,7 @@ import (
 //
 // The one failure that is not a failure: a framework upgrade may legitimately
 // change GENERATED artifacts, and the scaffolded drift gate exists to notice
-// exactly that. When TestContractDrift/TestClientDrift are the only failing
+// exactly that. When TestContractDrift/TestClientDrift/TestInfraDrift are the only failing
 // tests, upgrade runs the refresh those gates name, reruns the suite, and
 // reports the artifacts it changed — the diff is the upgrade's blast radius.
 
@@ -271,7 +271,7 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 				os.WriteFile(filepath.Join(dir, contractFile), origDoc, 0o644)
 			}
 		}
-		touched, err = refreshContracts(dir, slices.Contains(failedTests(testOut), "TestClientDrift"))
+		touched, err = refreshContracts(dir, slices.Contains(failedTests(testOut), "TestClientDrift"), slices.Contains(failedTests(testOut), "TestInfraDrift"))
 		if err != nil {
 			undoRefresh()
 			return fail("refreshing the contracts", err.Error())
@@ -405,7 +405,7 @@ func driftOnly(testOutput string) bool {
 		return false
 	}
 	for _, name := range failed {
-		if name != "TestContractDrift" && name != "TestClientDrift" {
+		if name != "TestContractDrift" && name != "TestClientDrift" && name != "TestInfraDrift" {
 			return false
 		}
 	}
@@ -435,7 +435,7 @@ func packageCount(testOutput string) string {
 // refreshContracts regenerates the committed derived artifacts by running the
 // product's own toolbox — the same two commands the drift gate's failure
 // message names, minus the shell redirect.
-func refreshContracts(dir string, wantClient bool) ([]string, error) {
+func refreshContracts(dir string, wantClient, wantInfra bool) ([]string, error) {
 	doc, err := goRunProduct(dir, "openapi")
 	if err != nil {
 		return nil, errors.New("go run . openapi: " + err.Error())
@@ -452,6 +452,14 @@ func refreshContracts(dir string, wantClient bool) ([]string, error) {
 			return nil, errors.New("go run . client: " + err.Error())
 		}
 		touched = append(touched, clientDir)
+	}
+	if wantInfra {
+		// The dev-infra gate: the framework changed what the graph's
+		// declarations render (e.g. POSTGRES_DB derived from [postgres]).
+		if _, err := goRunProduct(dir, "infra", "compose", "--write"); err != nil {
+			return nil, errors.New("go run . infra compose --write: " + err.Error())
+		}
+		touched = append(touched, "docker-compose.dev.yml")
 	}
 	return touched, nil
 }
