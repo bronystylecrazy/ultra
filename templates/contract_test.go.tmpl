@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/bronystylecrazy/ultrastack/cli"
+	"github.com/bronystylecrazy/ultrastack/contrib/devinfra"
+	"github.com/bronystylecrazy/ultrastack/di"
 )
 
 // The contract is DERIVED, and the derived artifacts are COMMITTED:
@@ -277,3 +279,42 @@ func treeOf(t *testing.T, dir string) map[string]string {
 	return files
 }
 {{end}}
+
+// TestInfraDrift keeps docker-compose.dev.yml true to the graph: presets
+// declare their dev containers (devinfra), and this file is DERIVED. First
+// run writes it; after that, wiring a preset with dev infra fails here until
+// `go run . infra compose --write` regenerates it. No declarations → no file
+// expected.
+func TestInfraDrift(t *testing.T) {
+	type sink struct{ services []devinfra.Service }
+	app := di.TestApp(t, App, di.Provide(func(ss di.Many[devinfra.Service]) *sink {
+		return &sink{services: ss}
+	}))
+	services := di.MustGet[*sink](app).services
+
+	const composeFile = "docker-compose.dev.yml"
+	current, err := os.ReadFile(composeFile)
+	if len(services) == 0 {
+		if err == nil && devinfra.IsGenerated(current) {
+			t.Fatalf("%s is generated but the graph declares no dev infra — delete it", composeFile)
+		}
+		return
+	}
+	want := devinfra.ComposeYAML(services)
+	if os.IsNotExist(err) {
+		if werr := os.WriteFile(composeFile, []byte(want), 0o644); werr != nil {
+			t.Fatal(werr)
+		}
+		t.Logf("wrote %s from the graph's declarations — commit it: git add %s", composeFile, composeFile)
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !devinfra.IsGenerated(current) {
+		return // hand-written compose: yours, not checked
+	}
+	if diff, ok := devinfra.Drift(current, services); !ok {
+		t.Fatalf("the graph's dev infra changed but %s was not regenerated:\n%s\n\nrefresh:\n  go run . infra compose --write", composeFile, diff)
+	}
+}

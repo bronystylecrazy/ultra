@@ -3,6 +3,11 @@
 version: '3'
 
 tasks:
+  dev:
+    desc: "THE inner loop: infra up, watch, rebuild, graceful restart, fresh contracts, web HMR — one terminal (`ultra dev`)"
+    cmds:
+      - ultra dev
+
   dev:api:
     desc: Serve the API (a dev build serves NO frontend — that is the design)
     cmds:
