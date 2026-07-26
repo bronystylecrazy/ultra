@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // analyzerModule is where the real analyzer lives — its own module, so
@@ -20,10 +21,11 @@ func cmdVet(args []string, out, errW io.Writer) int {
 // present, else `go run <module>@latest` (which needs GOPRIVATE + git
 // auth while the repo is private). dir, when set, is the working directory
 // (the mcp `vet` tool analyzes a named product); empty runs in place.
+//
+// Flags (-fix) pass straight through; the package patterns default to ./...
+// so `ultra vet -fix` means the whole module, exactly as `ultra vet` does.
 func runVet(dir string, args []string, out, errW io.Writer) int {
-	if len(args) == 0 {
-		args = []string{"./..."}
-	}
+	args = withPatterns(args)
 
 	run := func(name string, argv ...string) int {
 		cmd := exec.Command(name, argv...)
@@ -54,4 +56,16 @@ func runVet(dir string, args []string, out, errW io.Writer) int {
 then re-run: ultra vet ./...
 `, analyzerModule)
 	return 1
+}
+
+// withPatterns appends the default ./... when args carry only flags — so a
+// bare `ultra vet -fix` analyzes the module rather than handing the analyzer
+// a flag and no packages.
+func withPatterns(args []string) []string {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			return args
+		}
+	}
+	return append(append([]string{}, args...), "./...")
 }

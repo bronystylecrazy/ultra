@@ -100,7 +100,9 @@ func usage(w io.Writer) {
   ultra new feature <name>        one file at internal/app/<name>/<name>.go
                                   exporting Use() — then one line in app.go
   ultra vet [packages] [-fix]     static wiring checks (DI0001-DI0106 graph family, UV0001)
-                                  before anything runs; -fix applies fixes
+                                  before anything runs; -fix applies the
+                                  machine-safe edits the report marks [fixable]
+                                  (the rest stay advisory — they need a decision)
   ultra fleet status|vet [dir]    the whole fleet: versions, graph
                                   fingerprints + drift (--save baselines),
                                   analyzer findings across every product
