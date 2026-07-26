@@ -139,6 +139,98 @@ func TestGoModWiring(t *testing.T) {
 	}
 }
 
+// TestWebDepsCoverTheGeneratedCode: `./app client` emits create.ts importing
+// @tanstack/svelte-query, so the scaffolded package.json must list it. A
+// generated import the manifest does not declare is a `bun add` the product
+// owner has to discover from a build error.
+func TestWebDepsCoverTheGeneratedCode(t *testing.T) {
+	d := testData("speedcheck", scaffoldData{Web: true})
+	dir := filepath.Join(t.TempDir(), d.Name)
+	if err := scaffold(dir, d); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "web", "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// v6 is the contract: the runes adapter the generated create*/streams
+	// layers are written against (Svelte 5.25+).
+	if !strings.Contains(string(b), `"@tanstack/svelte-query": "^6.`) {
+		t.Errorf("package.json must declare the TanStack v6 runes adapter:\n%s", b)
+	}
+}
+
+// TestAuthScaffoldIsLoginnable pins the dev seed. A product whose login routes
+// are mounted over an empty user store with a commented-out signing key boots
+// perfectly and can never be signed in to — the worst kind of scaffold bug,
+// because nothing says so. So --auth writes both halves, they agree with each
+// other, and they are freshly random per product.
+func TestAuthScaffoldIsLoginnable(t *testing.T) {
+	d := testData("speedcheck", scaffoldData{Auth: true})
+	dir := filepath.Join(t.TempDir(), d.Name)
+	if err := scaffold(dir, d); err != nil {
+		t.Fatal(err)
+	}
+	read := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	cfg, main, mainTest := read("config.toml"), read("main.go"), read("main_test.go")
+
+	// A real 32-byte key, on an UNCOMMENTED line: a commented one is exactly
+	// the auth.jwt_unconfigured failure this exists to prevent.
+	secret := regexp.MustCompile(`(?m)^secret = "([0-9a-f]{64})"$`).FindStringSubmatch(cfg)
+	if secret == nil {
+		t.Fatalf("config.toml must carry a live [auth.jwt] secret:\n%s", cfg)
+	}
+	// The seeded role must be one [auth.roles] actually grants.
+	if !strings.Contains(cfg, `admin = ["*"]`) {
+		t.Errorf("[auth.roles] must grant the seeded role:\n%s", cfg)
+	}
+
+	// One user, marked as the temporary thing it is, with the credentials the
+	// `ultra new` output printed.
+	pw := regexp.MustCompile(`auth\.NewUser\("dev", "([0-9a-f]{18})", "admin"\)`).FindStringSubmatch(main)
+	if pw == nil {
+		t.Fatalf("main.go must seed one dev user:\n%s", main)
+	}
+	for _, want := range []string{"DEV ONLY — DELETE ME", "authpg.Stores()", "di.Bind[auth.UserStore]"} {
+		if !strings.Contains(main, want) {
+			t.Errorf("the seed must be loudly temporary, missing %q:\n%s", want, main)
+		}
+	}
+	// ...and the boot smoke actually signs in with them, so "loginnable" is
+	// part of the covenant rather than a claim.
+	if !strings.Contains(mainTest, `"password":"`+pw[1]+`"`) ||
+		!strings.Contains(mainTest, `http.Post(base+"/auth/token"`) {
+		t.Errorf("TestBoot must prove a real sign-in with the seeded credentials:\n%s", mainTest)
+	}
+
+	// Freshly random per product: no two scaffolds share a secret, so no
+	// default can ever leak into production by being the value everybody has.
+	other := filepath.Join(t.TempDir(), d.Name)
+	if err := scaffold(other, testData("speedcheck", scaffoldData{Auth: true})); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(other, "config.toml"))
+	if strings.Contains(string(b), secret[1]) {
+		t.Error("two products must not share a dev signing key")
+	}
+
+	// A --no-auth product carries none of it.
+	bare := filepath.Join(t.TempDir(), d.Name)
+	if err := scaffold(bare, testData("speedcheck", scaffoldData{})); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(filepath.Join(bare, "config.toml"))
+	if strings.Contains(string(b), "[auth.jwt]") {
+		t.Errorf("a product without --auth gets no jwt secret:\n%s", b)
+	}
+}
+
 // TestScaffoldVersionTracksRelease keeps scaffoldVersion honest: it is the
 // version a new product requires, so it must be the version the repo itself
 // releases. contrib/go.mod's requirement on the kernel is bumped by the

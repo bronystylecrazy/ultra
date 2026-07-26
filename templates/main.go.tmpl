@@ -71,6 +71,21 @@ var App = di.Options(
 		                    // makes ./app client emit the reactive session
 		                    // store (auth.svelte.ts), so screens can can()
 		auth.Protect,       // the enforcement itself
+
+		// ───────────────────────── DEV ONLY — DELETE ME ─────────────────────────
+		// ONE seeded user, so the login routes above actually work the minute
+		// this boots: {{.DevUser}} / {{.DevPassword}} (holds "admin", which
+		// [auth.roles] grants "*"). Without it the in-memory store is EMPTY and
+		// every sign-in is "invalid credentials" forever — boot warns about
+		// exactly that, and this line is why it does not.
+		//
+		// Replace with durable users before anyone else touches this:
+		//     authpg.Stores()   // users + API keys in Postgres
+		// and delete this block. A password in source is a password in git.
+		di.Bind[auth.UserStore](func() *auth.MemUsers {
+			return auth.NewMemUsers(auth.NewUser("{{.DevUser}}", "{{.DevPassword}}", "admin"))
+		}),
+		// ────────────────────────────────────────────────────────────────────────
 {{end}}
 {{- if .Web}}
 		SPA(), // dev: nothing at "/"; -tags embedspa: the built web/build
