@@ -22,11 +22,19 @@ func cmdVet(args []string, out, errW io.Writer) int {
 // auth while the repo is private). dir, when set, is the working directory
 // (the mcp `vet` tool analyzes a named product); empty runs in place.
 //
-// Flags (-fix) pass straight through; the package patterns default to ./...
-// so `ultra vet -fix` means the whole module, exactly as `ultra vet` does.
+// Flags (-fix, --format) pass through after vetFlags normalizes them; the
+// package patterns default to ./... so `ultra vet -fix` means the whole
+// module, exactly as `ultra vet` does. Exit codes are the analyzer's: 1 with
+// findings, 0 clean, 2 on a load error — every format, unchanged.
 func runVet(dir string, args []string, out, errW io.Writer) int {
-	args = withPatterns(args)
+	return runAnalyzer(dir, withPatterns(vetFlags(args)), out, errW)
+}
 
+// runAnalyzer executes the analyzer with argv exactly as given — no flag
+// translation, no default patterns. runVet is the front door; this is the raw
+// one, for callers that must speak the analyzer's own protocol (the mcp tool's
+// `-json` fallback to the flat go/analysis driver on an older binary).
+func runAnalyzer(dir string, args []string, out, errW io.Writer) int {
 	run := func(name string, argv ...string) int {
 		cmd := exec.Command(name, argv...)
 		cmd.Dir = dir
@@ -56,6 +64,39 @@ func runVet(dir string, args []string, out, errW io.Writer) int {
 then re-run: ultra vet ./...
 `, analyzerModule)
 	return 1
+}
+
+// vetFlags normalizes `ultra vet`'s output flags into the analyzer's own
+// spelling, so one marshaling implementation serves the CLI, CI and the mcp
+// `vet` tool:
+//
+//	--json                 → -format=json    the structured finding document
+//	--format github        → -format=github  GitHub Actions annotations
+//
+// --json cannot pass through verbatim: on the ANALYZER's command line -json is
+// reserved for the go/analysis flat driver, which `go vet -vettool` and gopls
+// speak. Folding `--format X` into one token also keeps withPatterns from
+// mistaking the value for a package pattern.
+//
+// Nothing else is touched — -fix, patterns and any future analyzer flag reach
+// it unchanged. No format flag at all means the analyzer decides: the
+// rustc-style report normally, GitHub annotations when GITHUB_ACTIONS=true, so
+// `ultra vet ./...` in a workflow annotates the pull request with zero config.
+func vetFlags(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--json" || a == "-json":
+			out = append(out, "-format=json")
+		case (a == "--format" || a == "-format") && i+1 < len(args):
+			out = append(out, "-format="+args[i+1])
+			i++
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // withPatterns appends the default ./... when args carry only flags — so a

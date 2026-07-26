@@ -105,6 +105,13 @@ func usage(w io.Writer) {
                                   runs; -fix applies the machine-safe edits
                                   the report marks [fixable] (the rest stay
                                   advisory — they need a decision)
+       --json                     the findings as one JSON array (code,
+                                  severity, span, secondary locations,
+                                  fixable, fix edits) — the same document the
+                                  mcp vet tool returns
+       --format github            GitHub Actions annotations; selected
+                                  automatically when GITHUB_ACTIONS=true, so
+                                  a plain vet run annotates a PR unasked
   ultra fleet status|vet [dir]    the whole fleet: versions, graph
                                   fingerprints + drift (--save baselines),
                                   analyzer findings across every product

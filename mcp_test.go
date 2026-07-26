@@ -217,12 +217,14 @@ func fakeUltravet(t *testing.T, script string) func() {
 	return func() { os.Setenv("PATH", old) }
 }
 
-// TestMCPVetDiagJSON asserts the vet tool prefers ultravet -diagjson and that
-// the structured findings flow through unchanged to the MCP result.
-func TestMCPVetDiagJSON(t *testing.T) {
+// TestMCPVetStructuredJSON asserts the vet tool asks for exactly what
+// `ultra vet --json` prints — the analyzer's -format=json document — and that
+// the findings flow through to the MCP result unchanged. One marshaling
+// implementation: the tool never reshapes what the analyzer emitted.
+func TestMCPVetStructuredJSON(t *testing.T) {
 	restore := fakeUltravet(t, `#!/bin/sh
 case "$1" in
--diagjson) echo '[{"code":"DI0001","message":"error[DI0001]: no provider for *x.Config (needed by NewDB)","file":"x.go","line":10,"col":2,"related":[{"file":"x.go","line":3,"col":6,"message":"needed by NewDB, declared here"}]}]'; exit 1 ;;
+-format=json) echo '[{"code":"DI0001","severity":"error","message":"error[DI0001]: no provider for *x.Config (needed by NewDB)","file":"x.go","line":10,"col":2,"endLine":10,"endCol":7,"fixable":true,"secondary":[{"file":"x.go","line":3,"col":6,"endLine":3,"endCol":17,"message":"this parameter of NewDB created the need"}],"fix":{"title":"Register NewConfig, which provides *x.Config","edits":[{"file":"x.go","line":9,"col":12,"endLine":9,"endCol":12,"startOffset":120,"endOffset":120,"newText":"di.Provide(NewConfig), "}]}}]'; exit 1 ;;
 -json) echo '{"x":{"ultravet":[]}}'; exit 0 ;;
 esac
 `)
@@ -233,30 +235,44 @@ esac
 		t.Fatalf("vet: %v", err)
 	}
 	var findings []struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-		File    string `json:"file"`
-		Line    int    `json:"line"`
-		Col     int    `json:"col"`
-		Related []struct {
+		Code      string `json:"code"`
+		Severity  string `json:"severity"`
+		Line      int    `json:"line"`
+		EndCol    int    `json:"endCol"`
+		Fixable   bool   `json:"fixable"`
+		Secondary []struct {
 			Message string `json:"message"`
-		} `json:"related"`
+		} `json:"secondary"`
+		Fix *struct {
+			Title string `json:"title"`
+			Edits []struct {
+				NewText string `json:"newText"`
+			} `json:"edits"`
+		} `json:"fix"`
 	}
 	if err := json.Unmarshal([]byte(out), &findings); err != nil {
-		t.Fatalf("vet output is not a diagjson array: %v\n%s", err, out)
+		t.Fatalf("vet output is not a finding array: %v\n%s", err, out)
 	}
-	if len(findings) != 1 || findings[0].Code != "DI0001" || findings[0].Line != 10 ||
-		len(findings[0].Related) != 1 {
+	if len(findings) != 1 {
 		t.Fatalf("structured shape not preserved: %s", out)
+	}
+	f := findings[0]
+	if f.Code != "DI0001" || f.Severity != "error" || f.Line != 10 || f.EndCol != 7 ||
+		!f.Fixable || len(f.Secondary) != 1 {
+		t.Fatalf("structured shape not preserved: %s", out)
+	}
+	if f.Fix == nil || len(f.Fix.Edits) != 1 || f.Fix.Edits[0].NewText == "" {
+		t.Fatalf("the fix edits must reach the agent: %s", out)
 	}
 }
 
 // TestMCPVetFallsBackToJSON asserts that an older ultravet that does not know
-// -diagjson transparently falls back to the flat go/analysis -json output.
+// the structured format transparently falls back to the flat go/analysis
+// -json output — which runVet must NOT rewrite on the way out.
 func TestMCPVetFallsBackToJSON(t *testing.T) {
 	restore := fakeUltravet(t, `#!/bin/sh
 case "$1" in
--diagjson) echo 'flag provided but not defined: -diagjson' 1>&2; exit 2 ;;
+-format=json) echo 'flag provided but not defined: -format=json' 1>&2; exit 2 ;;
 -json) echo '{"pkg":{"ultravet":[{"posn":"x.go:1:1","message":"error[DI0001]: no provider"}]}}'; exit 0 ;;
 esac
 `)

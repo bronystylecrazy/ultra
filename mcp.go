@@ -158,7 +158,7 @@ var mcpTools = []map[string]any{
 	},
 	{
 		"name":        "vet",
-		"description": "Runs the ultravet static wiring analyzer over a directory and returns its findings — missing providers, cycles, captive deps — before anything runs. Returns a structured JSON array ({code, message, file, line, col, related[], suggestedFix?}) when the installed ultravet supports it, else the flat go/analysis JSON. Use it to check a product's dependency graph is sound.",
+		"description": "Runs the ultravet static wiring analyzer over a directory and returns its findings — missing providers, cycles, captive deps — before anything runs. Returns the same JSON array `ultra vet --json` prints: {code, severity, message, file, line, col, endLine, endCol, fixable, secondary[], fix?{title, edits[]}} per finding, sorted by position, [] when clean. A finding with fixable:true carries the exact edits `ultra vet -fix` would apply. (An older ultravet without the flag falls back to the flat go/analysis JSON.) Use it to check a product's dependency graph is sound.",
 		"inputSchema": objSchema(map[string]any{
 			"dir": strProp("Path to the Go module/product to analyze."),
 		}, "dir"),
@@ -236,17 +236,20 @@ func toolVet(raw json.RawMessage) (string, error) {
 	if a.Dir == "" {
 		return "", fmt.Errorf("vet: dir is required")
 	}
-	// Prefer ultravet's structured -diagjson (codes, related spans, fixes).
+	// The agent gets EXACTLY what `ultra vet --json` prints — same flag, same
+	// runVet, same marshaling in analyzer/ultravet — so the tool and the CLI
+	// cannot describe the same findings differently.
+	//
 	// Detection is version-agnostic: run it, and accept the result only when
-	// stdout parses as a JSON array — our emitter always prints at least "[]",
+	// stdout parses as a JSON array — the emitter always prints at least "[]",
 	// so an older binary that does not know the flag (garbage/empty stdout)
 	// transparently falls through to the flat go/analysis -json below.
 	var diag, diagErr strings.Builder
-	if code := runVet(a.Dir, []string{"-diagjson", "./..."}, &diag, &diagErr); code >= 0 && isJSONArray(diag.String()) {
+	if code := runVet(a.Dir, []string{"--json", "./..."}, &diag, &diagErr); code >= 0 && isJSONArray(diag.String()) {
 		return diag.String(), nil
 	}
 	var buf strings.Builder
-	if code := runVet(a.Dir, []string{"-json", "./..."}, &buf, &buf); code == -1 {
+	if code := runAnalyzer(a.Dir, []string{"-json", "./..."}, &buf, &buf); code == -1 {
 		return "", fmt.Errorf("vet: could not run the analyzer (install ultravet, or set GOPRIVATE for `go run`)")
 	}
 	return buf.String(), nil

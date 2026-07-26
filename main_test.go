@@ -103,6 +103,41 @@ func TestVetDelegatesToBinary(t *testing.T) {
 	}
 }
 
+// TestVetOutputFlagTranslation pins the wire contract between `ultra vet` and
+// the analyzer. --json cannot pass through verbatim: on the analyzer's own
+// command line -json belongs to the go/analysis flat driver that `go vet
+// -vettool` and gopls speak, so the structured document rides -format=json.
+// --format's value must also fold into one token, or the default-patterns rule
+// would mistake "github" for a package.
+func TestVetOutputFlagTranslation(t *testing.T) {
+	bin := t.TempDir()
+	script := filepath.Join(bin, "ultravet")
+	os.WriteFile(script, []byte("#!/bin/sh\necho \"vet-args: $@\"\nexit 0\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"vet", "--json"}, "vet-args: -format=json ./..."},
+		{[]string{"vet", "--json", "./..."}, "vet-args: -format=json ./..."},
+		{[]string{"vet", "-json", "./..."}, "vet-args: -format=json ./..."},
+		{[]string{"vet", "--format", "github"}, "vet-args: -format=github ./..."},
+		{[]string{"vet", "--format", "github", "./..."}, "vet-args: -format=github ./..."},
+		{[]string{"vet", "-format=github", "./..."}, "vet-args: -format=github ./..."},
+		// No format flag: the analyzer decides, so GITHUB_ACTIONS auto-detection
+		// lives in exactly one place.
+		{[]string{"vet", "./..."}, "vet-args: ./..."},
+	}
+	for _, c := range cases {
+		var out, errW strings.Builder
+		run(c.args, &out, &errW)
+		if got := strings.TrimSpace(out.String()); got != c.want {
+			t.Errorf("ultra %v → %q, want %q", c.args, got, c.want)
+		}
+	}
+}
+
 // TestVetFixRewritesFile is the CLI half of the -fix covenant: `ultra vet -fix`
 // over a real temp module, with the real analyzer, leaves the file repaired.
 func TestVetFixRewritesFile(t *testing.T) {
