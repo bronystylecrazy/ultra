@@ -19,6 +19,12 @@ addr = ":8080"   # ULTRA_HTTP_ADDR overrides
 [log]
 level = "info"   # debug|info|warn|error — retunes live on file change
 format = "auto"  # console|json|auto
+
+[i18n]
+# Enabled locales — one messages/<locale>.toml each, completeness gated by
+# TestWiring. Per request: ?lang > ultra_lang cookie > Accept-Language > default.
+locales = ["en", "th"]
+default = "en"
 {{if .DB}}
 [postgres]
 url = "postgres://postgres:postgres@localhost:5432/{{.Name}}?sslmode=disable"

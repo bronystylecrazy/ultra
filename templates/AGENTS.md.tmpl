@@ -47,9 +47,9 @@ A dev build serves **no frontend** by design — a 404 at `/` means you wanted
 
 - **Features never import features** (UV0004). A cross-feature need is an
   interface declared by the CONSUMER, bound with `di.Alias` in `app.go`.
-- **Contracts are declared once, in Go.** `openapi.json`{{if .Web}} and
-  `web/src/lib/api/`{{end}} are DERIVED and committed — never hand-edit them;
-  fix the Go contract and run `task contracts`.
+- **Contracts are declared once, in Go.** `openapi.json`{{if .Web}},
+  `web/src/lib/api/` and `web/src/lib/i18n/`{{end}} are DERIVED and committed —
+  never hand-edit them; fix the Go contract and run `task contracts`.
 - **Every operation declares `api.Require("perm")` or `api.Public()`.** Auth is
   secure-by-default; forgetting is a boot error, not a silent hole.
 - **File names come from a closed set** plus the domain's nouns: `<pkg>.go`,

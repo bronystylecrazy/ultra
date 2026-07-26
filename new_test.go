@@ -54,6 +54,7 @@ func TestFlagsShapeTheTree(t *testing.T) {
 	core := []string{
 		".gitignore", "AGENTS.md", "Taskfile.yml", "config.toml", "contract_test.go",
 		"go.mod", "internal/app/app.go", "main.go", "main_test.go",
+		"messages/en.toml", "messages/th.toml",
 	}
 	web := []string{
 		"spa.go", "spa_embed.go",
@@ -360,7 +361,8 @@ func TestScaffoldCovenant(t *testing.T) {
 			// that does not exist yet), so they must now be on disk...
 			artifacts := []string{"openapi.json"}
 			if d.Web {
-				artifacts = append(artifacts, "web/src/lib/api/common.ts")
+				// The client AND the typed catalogs ride one bootstrap run.
+				artifacts = append(artifacts, "web/src/lib/api/common.ts", "web/src/lib/i18n/index.ts")
 			}
 			for _, f := range artifacts {
 				if _, err := os.Stat(filepath.Join(dir, f)); err != nil {

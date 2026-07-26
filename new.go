@@ -138,6 +138,10 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		"contract_test.go.tmpl": "contract_test.go",
 		// The product itself: the ONLY file that knows the feature list.
 		"app.go.tmpl": "internal/app/app.go",
+		// The committed message catalogs [i18n] enables — codes on the wire,
+		// words here; completeness is gated by TestWiring.
+		"messages/en.toml.tmpl": "messages/en.toml",
+		"messages/th.toml.tmpl": "messages/th.toml",
 	}
 	if d.Web {
 		// The embedspa build-tag pair: dev serves no frontend by design.

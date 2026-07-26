@@ -21,7 +21,8 @@ import (
 
 // The contract is DERIVED, and the derived artifacts are COMMITTED:
 // openapi.json at the product root{{if .Web}}, plus the typed client under
-// web/src/lib/api{{end}}. This file regenerates them from the running graph and
+// web/src/lib/api and the typed catalogs under web/src/lib/i18n{{end}}. This
+// file regenerates them from the running graph and
 // diffs. Change a contract without refreshing and the test fails here with the
 // diff — so every pull request shows its own blast radius instead of hiding it
 // behind "regenerate later".
@@ -195,36 +196,47 @@ func lineDiff(want, got []byte) string {
 // frontend, reviewed with the change that caused it.
 const clientDir = "web/src/lib/api"
 
-// TestClientDrift: the typed client the contracts imply vs. the one the
-// repository ships. Same gate, other end of the wire.
+// i18nDir holds the typed catalogs the SAME `client` run derives from the
+// registered messages/*.toml — committed and drift-gated with the client.
+const i18nDir = "web/src/lib/i18n"
+
+// TestClientDrift: the typed client (and catalogs) the contracts imply vs.
+// what the repository ships. Same gate, other end of the wire.
 func TestClientDrift(t *testing.T) {
 	// Bootstrap: a fresh scaffold ships a seed dev proxy and nothing else, so
 	// the first run GENERATES the client in place and passes. Commit it, and
 	// every later run is a diff.
 	if _, err := os.Stat(filepath.Join(clientDir, "common.ts")); errors.Is(err, fs.ErrNotExist) {
 		generateClient(t, clientDir)
-		t.Logf("generated %s from the current contracts — commit it: git add %s", clientDir, clientDir)
+		t.Logf("generated %s and %s from the current contracts — commit them: git add %s %s",
+			clientDir, i18nDir, clientDir, i18nDir)
 		return
 	}
 
-	fresh := t.TempDir()
+	// The generator writes the client at --out and the catalogs at ../i18n,
+	// so one temp parent holds both halves.
+	fresh := filepath.Join(t.TempDir(), "api")
 	generateClient(t, fresh)
 
-	committed := treeOf(t, clientDir)
-	generated := treeOf(t, fresh)
-
 	var added, removed, changed []string
-	for name, body := range generated {
-		switch old, ok := committed[name]; {
-		case !ok:
-			added = append(added, name)
-		case old != body:
-			changed = append(changed, name)
+	for _, pair := range []struct{ committed, generated, label string }{
+		{clientDir, fresh, clientDir},
+		{i18nDir, filepath.Join(fresh, "..", "i18n"), i18nDir},
+	} {
+		committed := treeOf(t, pair.committed)
+		generated := treeOf(t, pair.generated)
+		for name, body := range generated {
+			switch old, ok := committed[name]; {
+			case !ok:
+				added = append(added, pair.label+"/"+name)
+			case old != body:
+				changed = append(changed, pair.label+"/"+name)
+			}
 		}
-	}
-	for name := range committed {
-		if _, ok := generated[name]; !ok {
-			removed = append(removed, name)
+		for name := range committed {
+			if _, ok := generated[name]; !ok {
+				removed = append(removed, pair.label+"/"+name)
+			}
 		}
 	}
 	if len(added)+len(removed)+len(changed) == 0 {
@@ -234,7 +246,7 @@ func TestClientDrift(t *testing.T) {
 	report := func(mark string, files []string) {
 		sort.Strings(files)
 		for _, f := range files {
-			fmt.Fprintf(&b, "  %s %s/%s\n", mark, clientDir, f)
+			fmt.Fprintf(&b, "  %s %s\n", mark, f)
 		}
 	}
 	report("+", added)
@@ -254,10 +266,14 @@ func generateClient(t *testing.T, out string) {
 }
 
 // treeOf reads a directory into path → content. .gitkeep is the scaffold's
-// placeholder, not a generated file: it is never part of the comparison.
+// placeholder, not a generated file: it is never part of the comparison. A
+// missing directory is an empty tree (a product without i18n emits none).
 func treeOf(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	files := map[string]string{}
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return files
+	}
 	err := filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
 		if err != nil || e.IsDir() || e.Name() == ".gitkeep" {
 			return err

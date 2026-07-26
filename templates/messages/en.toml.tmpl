@@ -1,0 +1,15 @@
+# The English catalog. The wire carries stable codes; these files carry the
+# words — the message key IS the error code (one taxonomy), and `{param}`
+# names must match the problem's params. A key missing from one locale fails
+# TestWiring (I18N0202); `./app client` derives web/src/lib/i18n from here.
+
+"app.greeting" = "Welcome to {{.Name}}, {name}"
+
+# Framework codes a problem response localizes through (add your feature's
+# errors.go codes here as they ship):
+"request.invalid"     = "The request failed validation"
+"validation.required" = "{field} is required"
+"validation.min"      = "{field} is below the minimum of {limit}"
+"validation.max"      = "{field} is above the maximum of {limit}"
+"validation.email"    = "{field} must be an email address"
+"internal"            = "Something went wrong on our side"

@@ -11,15 +11,14 @@ package main
 
 import (
 	"cmp"
-{{- if .DB}}
 	"embed"
-{{- end}}
 
 	"github.com/bronystylecrazy/ultrastack/cli"
 	"github.com/bronystylecrazy/ultrastack/contrib/api"
 {{- if .Auth}}
 	"github.com/bronystylecrazy/ultrastack/contrib/auth"
 {{- end}}
+	"github.com/bronystylecrazy/ultrastack/contrib/i18n"
 {{- if .DB}}
 	"github.com/bronystylecrazy/ultrastack/contrib/migrate"
 	"github.com/bronystylecrazy/ultrastack/contrib/pg"
@@ -40,6 +39,13 @@ import (
 // so there is never a release where the binary and the document disagree
 // because someone edited one constant and not the other.
 var version = cmp.Or(cli.AppVersion, "0.1.0")
+
+// The committed message catalogs: the wire carries stable codes, these files
+// carry the words — one <locale>.toml per [i18n] locale, completeness gated
+// by TestWiring. `./app client` derives web/src/lib/i18n from them.
+//
+//go:embed messages/*.toml
+var messages embed.FS
 {{if .DB}}
 // Persistence is central: ONE migration line for the whole product, never a
 // per-feature directory. Add 00002_*.sql beside it as the schema grows.
@@ -62,6 +68,13 @@ var App = di.Options(
 		api.Use(api.Info{Title: "{{.Name}}", Version: version}),
 		api.Base("/v1"), // everything else belongs to the frontend
 		api.Docs(),      // /docs, /docs/openapi.json
+
+		// Words at the edge: problem messages render from the catalogs in the
+		// request's locale; codes stay the contract. The client generator
+		// derives typed catalogs (web/src/lib/i18n) from the same files.
+		i18n.Use(),                       // [i18n]: locales + default
+		i18n.Resolve,                     // ?lang > cookie > Accept-Language > default{{if .Auth}} — listed before auth.Protect{{end}}
+		i18n.Files(messages, "messages"), // the committed <locale>.toml catalogs
 {{if .DB}}
 		pg.Use(),      // [postgres]: the pool, dialed in Start
 		migrate.Use(), // goose, applied before anything serves

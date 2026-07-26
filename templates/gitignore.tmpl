@@ -17,6 +17,7 @@
 /web/playwright-report/
 {{- end}}
 
-# NOT ignored, on purpose: openapi.json{{if .Web}} and web/src/lib/api{{end}} — the derived contract
+# NOT ignored, on purpose: openapi.json{{if .Web}}, web/src/lib/api and
+# web/src/lib/i18n{{end}} — the derived contract
 # artifacts are committed so a pull request shows its own blast radius.
 # TestContractDrift is the gate, `task contracts` the refresh.
