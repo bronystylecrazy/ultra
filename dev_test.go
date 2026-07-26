@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,31 +59,134 @@ func TestDevShouldTrigger(t *testing.T) {
 	}
 }
 
-// devWatchDirs must not descend into the excluded trees at all: registering a
-// watch per node_modules directory is how a dev loop runs out of file
-// descriptors.
-func TestDevWatchDirsSkipsExcludedTrees(t *testing.T) {
+// watchTree materialises a fixture tree: directories from dirs, and a file per
+// entry of files (path → contents are irrelevant, only the name is read).
+func watchTree(t *testing.T, dirs, files []string) string {
+	t.Helper()
 	root := t.TempDir()
-	for _, dir := range []string{
-		"internal/app/orders",
-		"internal/db/gen",
-		"web/src/lib/api",
-		"web/node_modules/svelte",
-		".git/objects",
-		".ultradev",
-	} {
+	for _, dir := range dirs {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
+	for _, f := range files {
+		p := filepath.Join(root, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func watchedRels(t *testing.T, root string, dirs []string) []string {
+	t.Helper()
 	var rels []string
-	for _, d := range devWatchDirs(root) {
-		rel, _ := filepath.Rel(root, d)
+	for _, d := range dirs {
+		rel, err := filepath.Rel(root, d)
+		if err != nil {
+			t.Fatal(err)
+		}
 		rels = append(rels, filepath.ToSlash(rel))
 	}
+	return rels
+}
+
+// devWatchDirs must not descend into the excluded trees at all: registering a
+// watch per node_modules directory is how a dev loop runs out of file
+// descriptors — and on macOS, where kqueue costs one descriptor per FILE, it
+// is how a dev loop runs a core hot for nothing.
+func TestDevWatchDirsSkipsExcludedTrees(t *testing.T) {
+	root := watchTree(t,
+		[]string{"web/src/lib/api", "web/node_modules/svelte", ".git/objects", ".ultradev"},
+		[]string{
+			"main.go", "go.mod",
+			"internal/app/orders/orders.go",
+			"internal/db/gen/queries.sql.go",
+			// Everything below is inside an excluded tree and must not be
+			// walked, however Go-looking it is.
+			"web/src/lib/api/index.ts",
+			"web/node_modules/svelte/main.go",
+			".git/objects/pack.go",
+			".ultradev/app.go",
+			"vendor/github.com/x/y/y.go",
+			"internal/app/orders/testdata/golden.go",
+		})
 	want := []string{".", "internal", "internal/app", "internal/app/orders", "internal/db", "internal/db/gen"}
-	if !reflect.DeepEqual(rels, want) {
-		t.Fatalf("watched dirs = %v, want %v", rels, want)
+	if got := watchedRels(t, root, devWatchDirs(root)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("watched dirs = %v, want %v", got, want)
+	}
+}
+
+// The second prune, and the expensive one: a directory with no Go input
+// anywhere below it delivers only events this loop throws away. Watching it
+// buys nothing and costs a descriptor per file plus a wakeup per write.
+func TestDevWatchDirsSkipsTreesWithNoGoInThem(t *testing.T) {
+	root := watchTree(t,
+		[]string{"docs/adr", "dist/assets", "internal/db/migrations"},
+		[]string{
+			"main.go", "go.mod", "go.sum",
+			"internal/app/orders/orders.go",
+			// No Go anywhere below these — prose, output, and SQL.
+			"docs/README.md", "docs/adr/0001.md",
+			"dist/assets/app.css",
+			"internal/db/migrations/00001_init.sql",
+			// …but a Go file deep in an otherwise Go-free tree keeps the whole
+			// ancestor chain, or the package it belongs to goes unwatched.
+			"tools/gen/deep/gen.go",
+			"tools/notes.txt",
+		})
+	want := []string{
+		".",
+		"internal", "internal/app", "internal/app/orders",
+		"tools", "tools/gen", "tools/gen/deep",
+	}
+	if got := watchedRels(t, root, devWatchDirs(root)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("watched dirs = %v, want %v", got, want)
+	}
+}
+
+// A big frontend tree beside a small Go one is the shape that actually ships,
+// and the watch set must be a function of the Go tree alone.
+func TestDevWatchDirsIgnoresTheSizeOfTheFrontend(t *testing.T) {
+	var dirs, files []string
+	for i := range 300 {
+		d := fmt.Sprintf("web/node_modules/pkg%d/dist", i)
+		dirs = append(dirs, d)
+		files = append(files, d+"/bundle.js")
+	}
+	for i := range 50 {
+		files = append(files, fmt.Sprintf(".svelte-kit/generated/client/n%d.js", i))
+	}
+	files = append(files, "main.go", "go.mod", "internal/app/app.go")
+	root := watchTree(t, dirs, files)
+
+	got := watchedRels(t, root, devWatchDirs(root))
+	want := []string{".", "internal", "internal/app"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("watched dirs = %v, want %v — the frontend leaked into the watch set", got, want)
+	}
+}
+
+// The content prune must NOT apply to a directory that appears while the loop
+// runs. `ultra new feature billing` creates the directory a moment before
+// billing.go lands in it, and a watcher that waited for the Go file would miss
+// the feature's every save until a restart.
+func TestDevNewWatchDirsWatchesAnEmptyNewPackage(t *testing.T) {
+	root := watchTree(t,
+		[]string{"internal/app/billing/sub", "internal/app/billing/node_modules"},
+		nil)
+	got := watchedRels(t, root, devNewWatchDirs(root))
+	want := []string{".", "internal", "internal/app", "internal/app/billing", "internal/app/billing/sub"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("new-directory watch set = %v, want %v", got, want)
+	}
+	// And the startup set, on the same tree, watches only the root: nothing
+	// here can rebuild anything yet.
+	if got := watchedRels(t, root, devWatchDirs(root)); !reflect.DeepEqual(got, []string{"."}) {
+		t.Fatalf("startup watch set = %v, want [.]", got)
 	}
 }
 
@@ -515,10 +621,224 @@ func TestPrefixWriterTagsWholeLines(t *testing.T) {
 	}
 }
 
-// The dependency ultra dev adds is a TOOL dependency. The importable kernel —
-// what every product links — must still reach nothing outside the standard
-// library, which is why `ultra vet` delegates to its own module in the first
-// place.
+// ---- carriage returns, which a pty makes unavoidable ----
+
+// A spinner redraws by returning to column 0 and overwriting. That works on a
+// raw terminal and CANNOT work on a prefixed one: column 0 is where "[web] "
+// starts, so the redraw lands on the tag, and while two children share the
+// terminal it lands on the other one's line too. So `\r` ends a line here —
+// one tagged line per tick, nothing overwritten, nothing smeared.
+func TestPrefixWriterTreatsCarriageReturnAsALineBoundary(t *testing.T) {
+	cases := []struct {
+		name   string
+		writes []string
+		want   string
+		why    string
+	}{
+		{
+			name:   "trailing CR spinner",
+			writes: []string{"build 10%\rbuild 90%\rbuild done\n"},
+			want:   "[web] build 10%\n[web] build 90%\n[web] build done\n",
+			why:    "every tick is its own scrollable line",
+		},
+		{
+			name:   "leading CR spinner",
+			writes: []string{"\rstep 1\rstep 2\n"},
+			want:   "[web] step 1\n[web] step 2\n",
+			why:    "a CR with nothing before it starts a redraw and ends nothing — no empty tagged line",
+		},
+		{
+			name:   "CRLF from a pty's ONLCR",
+			writes: []string{"listening on :8080\r\n"},
+			want:   "[web] listening on :8080\n",
+			why:    "a pty turns every newline into CRLF; the pair is ONE boundary, not two",
+		},
+		{
+			name:   "CRLF split across two reads",
+			writes: []string{"listening\r", "\nready\r\n"},
+			want:   "[web] listening\n[web] ready\n",
+			why:    "a held CR may still be the front half of a CRLF — splitting it invents a blank line",
+		},
+		{
+			name:   "a blank line is still a blank line",
+			writes: []string{"a\n\nb\n"},
+			want:   "[web] a\n[web] \n[web] b\n",
+			why:    "an explicit empty LINE is content; an empty CR segment is not",
+		},
+		{
+			name:   "the tail is held until a boundary",
+			writes: []string{"downloading 40%"},
+			want:   "",
+			why:    "unchanged from before: no boundary, no line",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var sink strings.Builder
+			p := newPrefixer()("[web]", &sink)
+			for _, w := range c.writes {
+				if n, err := p.Write([]byte(w)); n != len(w) || err != nil {
+					t.Fatalf("Write(%q) = %d, %v", w, n, err)
+				}
+			}
+			if got := sink.String(); got != c.want {
+				t.Fatalf("got %q, want %q — %s", got, c.want, c.why)
+			}
+			if strings.Contains(sink.String(), "\r") {
+				t.Error("a carriage return reached the shared terminal — the prefix will be overwritten")
+			}
+		})
+	}
+}
+
+// ---- the pty stream's ending ----
+
+// scriptedReader replays chunks and then fails the way a pseudo-terminal
+// master does when the last process holding the slave has exited.
+type scriptedReader struct {
+	chunks []string
+	err    error
+}
+
+func (r *scriptedReader) Read(p []byte) (int, error) {
+	if len(r.chunks) == 0 {
+		return 0, r.err
+	}
+	n := copy(p, r.chunks[0])
+	r.chunks = r.chunks[1:]
+	return n, nil
+}
+
+// THE pty gotcha, and the reason relayPTY exists at all: on Linux a master
+// whose slave has no processes left answers read(2) with EIO, not EOF. Report
+// that and every single restart grows a spurious "input/output error" line
+// under it. It is the end of the stream and nothing else.
+func TestRelayPTYTreatsEIOAsTheEndOfTheStream(t *testing.T) {
+	cases := []struct {
+		name    string
+		err     error
+		wantErr bool
+		why     string
+	}{
+		{"EIO", &fs.PathError{Op: "read", Path: "/dev/ptmx", Err: syscall.EIO}, false,
+			"the child exited — this IS the EOF a pty gives"},
+		{"wrapped EOF", io.EOF, false, "the ordinary ending, on the platforms that give one"},
+		{"we closed the master", os.ErrClosed, false,
+			"the exit path closes the master to unblock this loop; that is not a failure either"},
+		{"a real failure", syscall.EPERM, true,
+			"anything else is news, and swallowing it would hide a supervisor bug"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var sink strings.Builder
+			r := &scriptedReader{chunks: []string{"listening", " on :8080\n"}, err: c.err}
+			err := relayPTY(&sink, r)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("relayPTY err = %v, wantErr %v — %s", err, c.wantErr, c.why)
+			}
+			// Either way, every byte the child managed to write is delivered:
+			// a crash's last words are the ones worth having.
+			if got := sink.String(); got != "listening on :8080\n" {
+				t.Fatalf("output = %q — bytes were dropped on the way out", got)
+			}
+		})
+	}
+}
+
+// ---- the colour contract with the children ----
+
+// vite, bun and everything chalk-based read FORCE_COLOR before they read
+// isatty, so the colour survives even the pipe path. And NO_COLOR is passed
+// THROUGH: the user said no once, and the children must hear the same no.
+func TestDevChildEnvCarriesTheColorDecision(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		name    string
+		env     map[string]string
+		tty     bool
+		opts    devOptions
+		wantPTY bool
+		want    []string
+	}{
+		{"a terminal", nil, true, devOptions{}, true,
+			[]string{"FORCE_COLOR=1", "CLICOLOR_FORCE=1"}},
+		{"--no-pty keeps the colour", nil, true, devOptions{noPTY: true}, false,
+			[]string{"FORCE_COLOR=1", "CLICOLOR_FORCE=1"}},
+		{"NO_COLOR", map[string]string{"NO_COLOR": "1"}, true, devOptions{}, false,
+			[]string{"NO_COLOR=1"}},
+		{"redirected to a file", nil, false, devOptions{}, false, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			setEnv(t, map[string]string{"NO_COLOR": "", "FORCE_COLOR": "", "CLICOLOR_FORCE": "", "TERM": "xterm"})
+			setEnv(t, c.env)
+			forceTerminal(t, c.tty)
+
+			d := newDevLoop(root, c.opts, os.Stdout, os.Stderr)
+			if d.pty != c.wantPTY {
+				t.Errorf("pty = %v, want %v", d.pty, c.wantPTY)
+			}
+			if got := d.childEnv(); !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("childEnv = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// The banners are the loop's whole UI, and the glyph is what the eye lands on
+// while the compiler scrolls past. Colour follows the WRITER: stderr may be a
+// log while stdout is a terminal.
+func TestDevBannersColorTheGlyph(t *testing.T) {
+	setEnv(t, map[string]string{"NO_COLOR": "", "CLICOLOR_FORCE": "", "FORCE_COLOR": "1"})
+	var out, errW syncBuilder
+	d := newDevLoop(t.TempDir(), devOptions{}, &out, &errW)
+	d.say(&out, "●", "serving pid %d", 4123)
+	d.say(&out, "↻", "restarting (3 files changed)")
+	d.say(&out, "·", "stopping")
+	d.say(d.errW, "✗", "api exited")
+
+	want := cGreen + "●" + cReset + " serving pid 4123\n" +
+		cYellow + "↻" + cReset + " restarting (3 files changed)\n" +
+		cDim + "· stopping" + cReset + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if got, want := errW.String(), cRed+"✗"+cReset+" api exited\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+
+	// NO_COLOR: byte-identical to the banners this loop printed before colour.
+	setEnv(t, map[string]string{"NO_COLOR": "1"})
+	var plain syncBuilder
+	plain2 := newDevLoop(t.TempDir(), devOptions{}, &plain, &plain)
+	plain2.say(&plain, "●", "serving pid %d", 4123)
+	if got := plain.String(); got != "● serving pid 4123\n" {
+		t.Fatalf("NO_COLOR banner = %q", got)
+	}
+}
+
+// A child on a terminal with no TERM at all assumes the dumbest one there is —
+// but only the pty path can do anything about it, and only when the
+// environment truly has none. Inheriting beats guessing.
+func TestDevChildEnvOnlyDefaultsAMissingTERM(t *testing.T) {
+	setEnv(t, map[string]string{"NO_COLOR": "", "FORCE_COLOR": "", "CLICOLOR_FORCE": "", "TERM": ""})
+	forceTerminal(t, true)
+	d := newDevLoop(t.TempDir(), devOptions{}, os.Stdout, os.Stderr)
+	if !slices.Contains(d.childEnv(), "TERM=xterm-256color") {
+		t.Fatalf("childEnv = %v, want a TERM default", d.childEnv())
+	}
+	setEnv(t, map[string]string{"TERM": "screen-256color"})
+	for _, kv := range d.childEnv() {
+		if strings.HasPrefix(kv, "TERM=") {
+			t.Fatalf("childEnv overrode an inherited TERM with %q", kv)
+		}
+	}
+}
+
+// The dependencies ultra dev adds are TOOL dependencies. The importable
+// kernel — what every product links — must still reach nothing outside the
+// standard library, which is why `ultra vet` delegates to its own module in
+// the first place.
 func TestKernelStaysZeroDependency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("shells out to go list")
@@ -541,5 +861,58 @@ func TestKernelStaysZeroDependency(t *testing.T) {
 		}
 		t.Errorf("the kernel imports %s — di/stack/cli must stay standard-library only "+
 			"(a tool's dependency belongs to cmd/ or its own module, the way the analyzer does)", pkg)
+	}
+}
+
+// toolDeps are the root module's requirements, and every one of them is
+// reachable ONLY from cmd/ultra. That is what makes them free for products:
+// with Go's module-graph pruning, a module that provides no package a product
+// imports contributes nothing to that product's go.mod or go.sum. fsnotify set
+// the precedent (the dev watcher); creack/pty follows it (the dev terminal).
+var toolDeps = []string{
+	"github.com/fsnotify/fsnotify",
+	"github.com/creack/pty",
+}
+
+// The proof, both directions: every tool dependency IS reached from cmd/ultra
+// (or the require line is dead), and NONE of them is reached from anything a
+// product can import (or it stops being free). The second half is the one that
+// matters — it is the difference between "ultra needs a pty" and "every
+// product that links ultrastack needs a pty".
+func TestToolDependenciesAreReachableOnlyFromCmd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to go list")
+	}
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps := func(patterns ...string) map[string]bool {
+		t.Helper()
+		cmd := exec.Command("go", append([]string{"list", "-deps"}, patterns...)...)
+		cmd.Dir = root
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("go list -deps %v: %v", patterns, err)
+		}
+		set := map[string]bool{}
+		for _, pkg := range strings.Fields(string(out)) {
+			set[pkg] = true
+		}
+		return set
+	}
+
+	tool := deps("./cmd/...")
+	importable := deps("./di/...", "./stack/...", "./cli/...", "./examples/...")
+	for _, dep := range toolDeps {
+		if !tool[dep] {
+			t.Errorf("%s is required by go.mod but no package under cmd/ imports it — drop the require line", dep)
+		}
+		for pkg := range importable {
+			if pkg == dep || strings.HasPrefix(pkg, dep+"/") {
+				t.Errorf("%s is reachable from an importable package — it is no longer tool-only, "+
+					"and module-graph pruning will stop keeping it out of every product's go.mod", pkg)
+			}
+		}
 	}
 }

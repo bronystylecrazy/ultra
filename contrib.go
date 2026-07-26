@@ -427,7 +427,7 @@ func contribAdd(args []string, out, errW io.Writer) int {
 	}
 
 	if dry {
-		fmt.Fprint(out, presetDiff(root.File, "+ "+entry, before, after))
+		fmt.Fprint(out, presetDiff(colorFor(out), root.File, "+ "+entry, before, after))
 		fmt.Fprintf(out, "\n--dry: nothing written.\n")
 		return 0
 	}
@@ -438,7 +438,7 @@ func contribAdd(args []string, out, errW io.Writer) int {
 	}
 	rel, _ := filepath.Rel(dir, root.File)
 	fmt.Fprintf(out, "%s: added %s to %s (%s), imported %s\n", rel, entry, root.Kind, positionHint(root), p.path())
-	fmt.Fprint(out, presetDiff(root.File, "+ "+entry, before, after))
+	fmt.Fprint(out, presetDiff(colorFor(out), root.File, "+ "+entry, before, after))
 
 	if note := ensureContribRequire(dir); note != "" {
 		fmt.Fprint(out, "\n"+note)
@@ -614,9 +614,11 @@ func contribRemove(args []string, out, errW io.Writer) int {
 		return 1
 	}
 
+	col := colorFor(out)
 	fmt.Fprintf(out, "%s: %d argument(s) in %s\n", p.Pkg, len(victims), root.Kind)
 	for _, v := range victims {
-		fmt.Fprintf(out, "  - %s   (main.go:%d)\n", oneLine(root.Fset, v), root.Fset.Position(v.Pos()).Line)
+		fmt.Fprintf(out, "  %s   %s\n", col.red("- "+oneLine(root.Fset, v)),
+			col.dim(fmt.Sprintf("(main.go:%d)", root.Fset.Position(v.Pos()).Line)))
 	}
 
 	findings := removalFindings(dir, root, p, wired)
@@ -652,7 +654,7 @@ func contribRemove(args []string, out, errW io.Writer) int {
 		fmt.Fprintln(errW, err)
 		return 1
 	}
-	fmt.Fprint(out, presetDiff(root.File, "- "+p.Pkg+".*", before, after))
+	fmt.Fprint(out, presetDiff(colorFor(out), root.File, "- "+p.Pkg+".*", before, after))
 	if bytes.Contains(after, []byte(strconv.Quote(p.path()))) {
 		fmt.Fprintf(out, "\nkept the %s import: main.go still references the package.\n", p.Pkg)
 	} else {
@@ -1431,7 +1433,7 @@ func (r *productRoot) importEdit(path string) (off int, text string, ok bool) {
 // presetDiff shows the two regions the edit touches — the import block and the
 // assembly — and nothing else. A whole-file diff would be one hunk stretching
 // from the imports to `var App`, which is exactly the review nobody reads.
-func presetDiff(file, label string, before, after []byte) string {
+func presetDiff(p palette, file, label string, before, after []byte) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n--- %s\n+++ %s   (%s)\n", filepath.Base(file), filepath.Base(file), label)
 	bi, ba, err1 := regions(before)
@@ -1439,10 +1441,10 @@ func presetDiff(file, label string, before, after []byte) string {
 	if err1 != nil || err2 != nil {
 		return b.String()
 	}
-	b.WriteString("@@ imports @@\n")
-	b.WriteString(hunk(bi, ai))
-	b.WriteString("@@ var App @@\n")
-	b.WriteString(hunk(ba, aa))
+	b.WriteString(p.dim("@@ imports @@") + "\n")
+	b.WriteString(hunk(p, bi, ai))
+	b.WriteString(p.dim("@@ var App @@") + "\n")
+	b.WriteString(hunk(p, ba, aa))
 	return b.String()
 }
 
@@ -1482,7 +1484,7 @@ func regions(src []byte) (imports, assembly string, err error) {
 
 // hunk diffs two blocks that differ only by insertion: trim the common prefix
 // and suffix, then show one line of context around what changed.
-func hunk(before, after string) string {
+func hunk(p palette, before, after string) string {
 	b := strings.Split(before, "\n")
 	a := strings.Split(after, "\n")
 	head := 0
@@ -1505,10 +1507,10 @@ func hunk(before, after string) string {
 	ctx(head - 2)
 	ctx(head - 1)
 	for _, line := range b[head : len(b)-tail] {
-		fmt.Fprintf(&out, "- %s\n", line)
+		fmt.Fprintln(&out, p.red("- "+line))
 	}
 	for _, line := range a[head : len(a)-tail] {
-		fmt.Fprintf(&out, "+ %s\n", line)
+		fmt.Fprintln(&out, p.green("+ "+line))
 	}
 	ctx(len(b) - tail)
 	ctx(len(b) - tail + 1)

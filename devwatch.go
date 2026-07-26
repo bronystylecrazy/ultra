@@ -29,11 +29,23 @@ import (
 //	web/            the frontend dev server owns it (vite has its own watcher),
 //	                and web/src/lib/api is the client WE regenerate
 //	node_modules/   never source, always enormous
+//	vendor/         Go source, but not source anyone EDITS: a vendored tree
+//	                changes only when `go mod vendor` rewrites it, and that
+//	                changes go.mod/go.sum too — which ARE watched. So the
+//	                rebuild still happens, without watching ten thousand files
+//	testdata/       the go tool excludes testdata from package loading, so a
+//	                .go file under it is data, not a compilation input
 //
 // Anything whose path has a dot-segment is excluded too (see devExcluded):
 // that covers .git/, the .ultradev/ build output, .svelte-kit/, editor
 // scratch directories, and emacs' `.#main.go` lock files in one rule.
-var devExcludedRoots = []string{"web", "node_modules"}
+//
+// The names matter more on macOS than anywhere else. Linux has inotify, which
+// watches a DIRECTORY with one descriptor. kqueue cannot: fsnotify has to open
+// one descriptor per FILE and, on every event, re-read the directory listing
+// to work out what changed. A 4,000-file tree measured 3,628 open descriptors
+// here — so on a Mac, every directory this list removes is paid back twice.
+var devExcludedRoots = []string{"web", "node_modules", "vendor", "testdata"}
 
 // devExcludedOutputs are the derived artifacts the loop regenerates on every
 // restart, named here so the "never watch your own exhaust" rule is explicit
@@ -76,17 +88,94 @@ func devShouldTrigger(rel string) bool {
 	if devExcluded(rel) {
 		return false
 	}
-	base := filepath.Base(filepath.ToSlash(rel))
-	return base == "go.mod" || base == "go.sum" || strings.HasSuffix(base, ".go")
+	return devIsBuildInput(filepath.Base(filepath.ToSlash(rel)))
 }
 
-// devWatchDirs walks root for every directory the watcher must register.
-// fsnotify is not recursive: one AddWatch per directory is the whole trick,
-// and devWatcher.pump adds new ones as they appear.
+// devIsBuildInput reports whether a FILE name is one the loop rebuilds for.
+// The trigger set and the watch set are decided by the same predicate, so a
+// directory can never be watched for a file that could not have mattered.
+func devIsBuildInput(name string) bool {
+	return name == "go.mod" || name == "go.sum" || strings.HasSuffix(name, ".go")
+}
+
+// devWatchDirs is the STARTUP watch set: every directory that could deliver a
+// rebuild, and not one more. fsnotify is not recursive — one AddWatch per
+// directory is the whole trick — and devWatcher.pump adds new ones as they
+// appear.
+//
+// Two prunes, and the second is the one that costs a Mac real CPU:
+//
+//  1. By NAME, at WALK time (fs.SkipDir), so an excluded tree is never
+//     descended into at all. Registering a watch per node_modules directory is
+//     how a dev loop runs out of descriptors; walking one is how it takes a
+//     second to start.
+//  2. By CONTENT: a directory with no Go input anywhere below it is not
+//     watched. `internal/db/migrations` is SQL, `docs/` is prose, `dist/` is
+//     output — every event they deliver is one this loop reads, converts,
+//     tests against two predicates, and throws away. Measured here: ~30µs of
+//     ultra CPU per discarded event, and on macOS an open descriptor per file
+//     on top. A directory that cannot produce a rebuild should not be able to
+//     produce an interrupt.
+//
+// The blind spot rule 2 buys, stated plainly: adding the FIRST .go file to a
+// directory that had none — and that existed when the loop started — is not
+// noticed until the loop restarts. A directory CREATED while the loop runs is
+// exempt (see devNewWatchDirs), which is the case that actually happens: a new
+// package is a new directory, and `ultra new feature` makes one.
 //
 // An unreadable subtree is skipped, never fatal — a dev loop that refuses to
 // start over one permission bit is worse than a dev loop with a blind spot.
 func devWatchDirs(root string) []string {
+	candidates := devNewWatchDirs(root)
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// Which directories hold a Go input, and therefore must be watched along
+	// with every ancestor up to the root.
+	keep := map[string]bool{root: true}
+	filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // unreadable is a blind spot, not a failure
+		}
+		if e.IsDir() {
+			rel, relErr := filepath.Rel(root, p)
+			if relErr != nil || (rel != "." && devExcluded(rel)) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !devIsBuildInput(e.Name()) {
+			return nil
+		}
+		for d := filepath.Dir(p); ; d = filepath.Dir(d) {
+			if keep[d] {
+				break // this ancestor chain is already marked
+			}
+			keep[d] = true
+			if d == root || filepath.Dir(d) == d {
+				break
+			}
+		}
+		return nil
+	})
+
+	dirs := candidates[:0:0] // fresh backing array, walk order preserved
+	for _, p := range candidates {
+		if keep[p] {
+			dirs = append(dirs, p)
+		}
+	}
+	return dirs
+}
+
+// devNewWatchDirs is the watch set for a directory that appeared WHILE the
+// loop is running: pruned by name, never by content. A directory being created
+// right now is a package being written right now — `ultra new feature billing`
+// makes `internal/app/billing/` a moment before billing.go lands in it — and a
+// loop that waited for the Go file to exist before watching for it would miss
+// every new feature's first save.
+func devNewWatchDirs(root string) []string {
 	var dirs []string
 	filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
 		if err != nil || !e.IsDir() {
@@ -149,7 +238,10 @@ func (d *devWatcher) pump(changes chan<- string, errW io.Writer) {
 			}
 			if ev.Has(fsnotify.Create) {
 				if info, err := os.Stat(ev.Name); err == nil && info.IsDir() {
-					for _, dir := range devWatchDirs(ev.Name) {
+					// Unconditionally, by name only: a directory appearing
+					// under the loop's nose is a package being written, and
+					// its first .go file has not landed yet.
+					for _, dir := range devNewWatchDirs(ev.Name) {
 						d.w.Add(dir)
 					}
 					continue
