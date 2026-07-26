@@ -44,7 +44,7 @@ var migrations embed.FS
 // and e2e drives the built binary. Never reassign it: ultravet resolves the
 // var only while it has a single writer.
 var App = di.Options(
-	ultra.Product( // the paved road: config + zerolog + Fiber on [http] +
+	ultra.New( // the paved road: config + zerolog + Fiber on [http] +
 	               // /healthz, /ops/*, /metrics + traces/metrics (dormant
 	               // until [otel] or env configures an exporter)
 		// The typed edge. Contracts are declared once, in Go, with logical
