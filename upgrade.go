@@ -279,6 +279,12 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 	for _, line := range changedPaths(dir, touched) {
 		fmt.Fprintf(out, "               %s\n", line)
 	}
+	// A vendored skill mirrors the pin — refresh it with the bump so the
+	// doctrine agents read never lags the code (manifest presence = opt-in).
+	if _, err := os.Stat(filepath.Join(dir, skillDest, skillManifest)); err == nil {
+		fmt.Fprintf(out, "\n")
+		cmdSkillInstall([]string{dir}, out, errW)
+	}
 	fmt.Fprintf(out, "\n  nothing was committed — read the diff, then commit it yourself.\n")
 	return 0
 }

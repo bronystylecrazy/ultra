@@ -58,8 +58,11 @@ const genEndMarker = "<!-- ultra:gen end -->"
 
 // cmdSkill implements `ultra skill <sub>`; only `gen` exists today.
 func cmdSkill(args []string, out, errW io.Writer) int {
+	if len(args) > 0 && args[0] == "install" {
+		return cmdSkillInstall(args[1:], out, errW)
+	}
 	if len(args) == 0 || args[0] != "gen" {
-		fmt.Fprintln(errW, "usage: ultra skill gen")
+		fmt.Fprintln(errW, "usage: ultra skill gen | ultra skill install [--check] [--force]")
 		return 2
 	}
 	root, err := os.Getwd()

@@ -204,6 +204,12 @@ func usage(w io.Writer) {
   ultra mcp                       Model Context Protocol server over stdio:
                                   the graph intelligence as agent tools
                                   (claude mcp add ultrastack -- ultra mcp)
+  ultra skill install [--check]   vendor SKILL.md + references/ into
+                                  .claude/skills/ultrastack at the EXACT
+                                  version go.mod pins (replace wins: live
+                                  checkout) — agents read doctrine matching
+                                  the code; --check gates CI; ultra upgrade
+                                  refreshes it with the bump
   ultra skill gen                 regenerate references/ (errors.md + go-doc
                                   and compiled-example marker blocks); run
                                   from the repo root — the drift test gates it
