@@ -65,6 +65,8 @@ A dev build serves **no frontend** by design — a 404 at `/` means you wanted
   unused lands.
 - **Comments are concise and short.** One line stating a constraint the code
   cannot show; never narrate the next line or restate the obvious.
+- **Time comes from `di.Clock`.** Stamp rows in Go (`clock.Now()`); no
+  `DEFAULT now()` in migrations — tests must be able to drive time.
 
 ## The full doctrine
 
