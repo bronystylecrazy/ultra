@@ -1,0 +1,19 @@
+// The feature's error surface — a CONTRACT page, not plumbing. Two kinds live
+// here, both exported:
+//
+//   - error CODES: the stable machine discriminators clients localize from
+//     ({{.Pkg}}.not_found). They ride api.Fail's problem envelope, appear in
+//     OpenAPI x-error-codes, and land in the generated client's typed error
+//     unions (declared on each op with api.Codes in {{.Pkg}}.go). Never rename a
+//     shipped code — add a new one.
+//   - SENTINELS: errors.Is targets for branching inside the feature and in tests.
+//
+// The codes below came from {{.Source}}: one per error status the document
+// declared, plus one `.not_implemented` per operation. The stub codes are
+// TEMPORARY — each one dies with the stub it belongs to, and when the last is
+// gone this page is the feature's real error contract.
+package {{.Pkg}}
+
+// Codes — pair with api.Fail(status, Code..., ...).
+{{.CodeDefs}}
+// Sentinels — var Err... = errors.New("{{.Pkg}}: ...").

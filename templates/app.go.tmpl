@@ -2,7 +2,13 @@
 // feature list. main.go splices Modules() in; nothing else aggregates.
 package app
 
-import "github.com/bronystylecrazy/ultrastack/di"
+{{if .Features}}import (
+	"github.com/bronystylecrazy/ultrastack/di"
+
+{{range .Features}}	"{{$.Module}}/internal/app/{{.}}"
+{{end}})
+{{else}}import "github.com/bronystylecrazy/ultrastack/di"
+{{end}}
 
 // Modules is the feature list. Every feature is exactly one line:
 //
@@ -25,5 +31,11 @@ import "github.com/bronystylecrazy/ultrastack/di"
 //
 // so the coupling is visible in one place and swappable in tests.
 func Modules() di.Reg {
+{{- if .Features}}
+	return di.Options(
+{{range .Features}}		{{.}}.Use(),
+{{end}}	)
+{{- else}}
 	return di.Options()
+{{- end}}
 }

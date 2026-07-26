@@ -1,0 +1,21 @@
+// The CONTRACT page: the request and response payloads {{.Source}} described,
+// and one handler per operation. Domain entities live in types.go; payloads
+// live here, because they ARE the contract.
+//
+// Every handler is a 501 stub: `api.Fail(501, <pkg>.<op>.not_implemented, ...)`
+// rides the problem envelope, so a caller of an unported endpoint gets a real,
+// machine-readable answer instead of a 404 or a panic. Porting one is a
+// three-line edit — take the dependency on the receiver (or a closure), do the
+// work, return the typed value — and the code const in errors.go goes with it.
+package {{.Pkg}}
+
+import (
+	"context"
+	"net/http"
+{{if .HandlerImports}}
+	{{.HandlerImports}}
+{{end}}
+	"github.com/bronystylecrazy/ultrastack/contrib/api"
+)
+
+{{.Handlers}}
