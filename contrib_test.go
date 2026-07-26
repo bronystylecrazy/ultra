@@ -491,7 +491,7 @@ type Repo struct{ db *pg.DB }
 		`api  api.Use(api.Info{Title: "shop", Version: version})`,
 		"main.go:17",
 		"internal/app/app.go:4",
-		"AVAILABLE (19)",
+		"AVAILABLE (20)",
 		"migrate    goose migrations, applied before anything serves",
 		"redis      the Redis client",
 		"([redis], dev infra)",

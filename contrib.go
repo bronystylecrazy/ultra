@@ -85,6 +85,8 @@ var presets = []preset{
 		Doc: "the config file + env binding ([section] to a typed Config)"},
 	{Pkg: "console", Entry: "console.Use()",
 		Doc: "the embedded ops console at /ops/console (health, boot, preset cards)"},
+	{Pkg: "i18n", Entry: "i18n.Use()", Section: "i18n",
+		Doc: "locale catalogs + the request-locale ladder (codes on the wire)", Pairs: []string{"conf"}},
 	{Pkg: "inference", Entry: "inference.Use()", Section: "inference",
 		Doc: "the gRPC inference client"},
 	{Pkg: "jobs", Entry: "jobs.Use()", Section: "jobs",
