@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,6 +92,84 @@ func TestVetDelegatesToBinary(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "vet-args: ./... -fix") {
 		t.Fatalf("args must pass through: %q", out.String())
+	}
+
+	// A bare flag list still means "this module": -fix alone is -fix ./...
+	out.Reset()
+	errW.Reset()
+	run([]string{"vet", "-fix"}, &out, &errW)
+	if !strings.Contains(out.String(), "vet-args: -fix ./...") {
+		t.Fatalf("-fix alone must default the patterns: %q", out.String())
+	}
+}
+
+// TestVetFixRewritesFile is the CLI half of the -fix covenant: `ultra vet -fix`
+// over a real temp module, with the real analyzer, leaves the file repaired.
+func TestVetFixRewritesFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs the analyzer binary")
+	}
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Build the real ultravet (its own module) and put it first on PATH.
+	binDir := t.TempDir()
+	build := exec.Command("go", "build", "-o", filepath.Join(binDir, "ultravet"), "./cmd/ultravet")
+	build.Dir = filepath.Join(root, "analyzer")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build ultravet: %v\n%s", err, out)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// A throwaway product wired against this checkout: NewDB needs a *Config
+	// nothing provides, and exactly one local constructor supplies it.
+	mod := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(mod, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module fixprobe\n\ngo 1.26.3\n\nrequire github.com/bronystylecrazy/ultrastack v0.0.0\n\nreplace github.com/bronystylecrazy/ultrastack => "+root+"\n")
+	write("main.go", `package main
+
+import "github.com/bronystylecrazy/ultrastack/di"
+
+type Config struct{}
+type DB struct{}
+
+func NewConfig() *Config    { return &Config{} }
+func NewDB(cfg *Config) *DB { return &DB{} }
+
+func main() {
+	_ = di.Validate(
+		di.Provide(NewDB),
+	)
+}
+`)
+
+	var out, errW strings.Builder
+	code := runVet(mod, []string{"-fix", "./..."}, &out, &errW)
+	if code != 1 {
+		t.Fatalf("a run that found (and fixed) a problem still exits 1, got %d\n%s%s", code, out.String(), errW.String())
+	}
+	fixed, err := os.ReadFile(filepath.Join(mod, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(fixed), "di.Provide(NewConfig),") {
+		t.Fatalf("ultra vet -fix did not register the missing provider:\n%s\n--- output ---\n%s%s",
+			fixed, out.String(), errW.String())
+	}
+	if !strings.Contains(out.String(), "fixed 1 issue in 1 file") {
+		t.Errorf("summary missing from output:\n%s", out.String())
+	}
+
+	// Idempotent: the graph is whole now, so a second run is clean.
+	out.Reset()
+	errW.Reset()
+	if code := runVet(mod, []string{"./..."}, &out, &errW); code != 0 {
+		t.Fatalf("the fixed module must vet clean, got %d:\n%s%s", code, out.String(), errW.String())
 	}
 }
 
