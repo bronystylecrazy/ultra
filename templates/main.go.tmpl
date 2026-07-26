@@ -67,6 +67,9 @@ var App = di.Options(
 		auth.TokenRoutes,   // POST /auth/token (+/refresh) — API clients
 		auth.LoginRoutes,   // POST /auth/login|logout — browsers (cookie)
 		auth.SessionRoutes, // self-service session list/revoke
+		auth.MeRoute,       // GET /auth/me: identity + effective permissions —
+		                    // makes ./app client emit the reactive session
+		                    // store (auth.svelte.ts), so screens can can()
 		auth.Protect,       // the enforcement itself
 {{end}}
 {{- if .Web}}
