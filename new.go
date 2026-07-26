@@ -324,7 +324,8 @@ func cmdNewFeature(args []string, out, errW io.Writer) int {
 		return 1
 	}
 	if err := renderAll(".", map[string]string{
-		"feature.go.tmpl": filepath.Join(dir, name+".go"),
+		"feature.go.tmpl":        filepath.Join(dir, name+".go"),
+		"feature_errors.go.tmpl": filepath.Join(dir, "errors.go"),
 	}, scaffoldData{Name: name}); err != nil {
 		fmt.Fprintln(errW, err)
 		return 1

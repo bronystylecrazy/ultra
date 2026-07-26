@@ -1,0 +1,18 @@
+// The feature's error surface — a CONTRACT page, not plumbing. Two kinds
+// live here, both exported:
+//
+//   - error CODES: the stable machine discriminators clients localize from
+//     ({{.Name}}.not_found). They ride api.Fail's problem envelope, appear
+//     in OpenAPI x-error-codes, and land in the generated client's typed
+//     error unions (declare them on ops with api.Codes). Never rename a
+//     shipped code — add a new one.
+//   - SENTINELS: errors.Is targets for branching inside the feature and in
+//     tests.
+package {{.Name}}
+
+// Codes — pair with api.Fail(status, Code..., ...).
+const (
+	// CodeNotFound = "{{.Name}}.not_found"
+)
+
+// Sentinels — var Err... = errors.New("{{.Name}}: ...").

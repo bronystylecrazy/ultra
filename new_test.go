@@ -196,8 +196,8 @@ func TestNewFeatureScaffold(t *testing.T) {
 	}
 	// No manifest files: they appear when content demands them.
 	entries, _ := os.ReadDir(filepath.Join(dir, "internal", "app", "zones"))
-	if len(entries) != 1 {
-		t.Errorf("a new feature is ONE file, got %d", len(entries))
+	if len(entries) != 2 {
+		t.Errorf("a new feature is its front page plus its error contract — 2 files, got %d", len(entries))
 	}
 	if !strings.Contains(out.String(), "zones.Use()") {
 		t.Errorf("the next step (one line in app.go) must be printed:\n%s", out.String())
