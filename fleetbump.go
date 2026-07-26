@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -164,26 +165,33 @@ func bumpOne(p fleetProduct, to string, target semver, push, pr, full bool) bump
 
 	// Read every framework require line (root + contrib) and decide if the
 	// repo is behind. The lowest require present drives From.
-	lines, lowest, lowestVer, ok := frameworkRequires(p.Dir)
-	if !ok {
+	data, err := os.ReadFile(p.Dir + "/go.mod")
+	if err != nil {
 		r.Status = "FAILED"
 		r.Detail = "could not read go.mod"
 		return r
 	}
-	if len(lines) == 0 {
+	pins := modPins(string(data), bumpModules)
+	if len(pins) == 0 {
 		r.Status = "already-current"
 		r.Detail = "no framework require to bump"
 		return r
 	}
-	r.From = lowest
-	// already-current iff no require is below the target.
-	behind := false
-	for _, cur := range lowestVer {
+	// already-current iff no require is below the target; the lowest pin is From.
+	lowest, behind := "", false
+	for _, pn := range pins {
+		cur, ok := parseSemver(pn.Version)
+		if !ok {
+			continue
+		}
 		if cur.less(target) {
 			behind = true
-			break
+		}
+		if low, have := parseSemver(lowest); !have || cur.less(low) {
+			lowest = pn.Version
 		}
 	}
+	r.From = lowest
 	if !behind {
 		r.Status = "already-current"
 		return r
@@ -225,7 +233,7 @@ func bumpOne(p fleetProduct, to string, target semver, push, pr, full bool) bump
 		git(p.Dir, "branch", "-D", branch)
 	}
 
-	if err := rewriteRequires(p.Dir, to); err != nil {
+	if err := rewriteRequires(p.Dir, to, bumpModules); err != nil {
 		revert()
 		r.Status = "FAILED"
 		r.Detail = "rewrite go.mod: " + err.Error()
@@ -294,51 +302,40 @@ func bumpOne(p fleetProduct, to string, target semver, push, pr, full bool) bump
 	return r
 }
 
-// frameworkRequires returns the framework require lines (root module and its
-// contrib submodule) found in a repo's go.mod, plus the lowest version string
-// and the parsed versions of every require. ok is false only on read error.
-func frameworkRequires(dir string) (lines []string, lowest string, versions []semver, ok bool) {
-	data, err := os.ReadFile(dir + "/go.mod")
-	if err != nil {
-		return nil, "", nil, false
+// bumpModules are the pins fleet bump moves: the kernel and its contrib
+// submodule, the two every product requires. (`ultra upgrade` adds the
+// analyzer — a fleet bump verifies a build, not a lint toolchain.)
+var bumpModules = []string{frameworkModule, frameworkModule + "/contrib"}
+
+// requireEntry decodes one go.mod line as a require entry for one of mods:
+// `<module> vX.Y.Z`, with or without a `require ` prefix, inside a block or
+// standing alone. Two lines that LOOK like requires are not: a comment (every
+// scaffolded go.mod ships a commented replace pair) and a `replace` arrow,
+// whose right-hand side is a path — rewriting it would point the module at a
+// directory named "v0.9.18".
+func requireEntry(raw string, mods []string) (mod, ver string, ok bool) {
+	body := strings.TrimPrefix(strings.TrimSpace(raw), "require ")
+	if strings.HasPrefix(body, "//") || strings.Contains(body, "=>") {
+		return "", "", false
 	}
-	var low *semver
-	for _, raw := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(raw)
-		// Match `<framework>[/contrib] vX.Y.Z`, with or without a `require ` prefix.
-		body := strings.TrimPrefix(line, "require ")
-		if !strings.HasPrefix(body, frameworkModule) {
-			continue
-		}
-		fields := strings.Fields(body)
-		if len(fields) < 2 {
-			continue
-		}
-		mod, ver := fields[0], fields[len(fields)-1]
-		if mod != frameworkModule && mod != frameworkModule+"/contrib" {
-			continue
-		}
-		if !strings.HasPrefix(ver, "v") {
-			continue
-		}
-		sv, okv := parseSemver(ver)
-		if !okv {
-			continue
-		}
-		lines = append(lines, line)
-		versions = append(versions, sv)
-		if low == nil || sv.less(*low) {
-			s := sv
-			low = &s
-			lowest = ver
-		}
+	fields := strings.Fields(body)
+	if len(fields) < 2 {
+		return "", "", false
 	}
-	return lines, lowest, versions, true
+	// fields[1], never the last field: `mod v1.2.3 // indirect` ends in a word.
+	mod, ver = fields[0], fields[1]
+	if !slices.Contains(mods, mod) || !strings.HasPrefix(ver, "v") {
+		return "", "", false
+	}
+	if _, ok := parseSemver(ver); !ok {
+		return "", "", false
+	}
+	return mod, ver, true
 }
 
-// rewriteRequires rewrites every framework require line (root + contrib) in
-// the repo's go.mod to `to`, leaving all other lines byte-for-byte unchanged.
-func rewriteRequires(dir, to string) error {
+// rewriteRequires rewrites every require line for mods in the repo's go.mod to
+// `to`, leaving all other lines byte-for-byte unchanged.
+func rewriteRequires(dir, to string, mods []string) error {
 	path := dir + "/go.mod"
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -346,22 +343,11 @@ func rewriteRequires(dir, to string) error {
 	}
 	lines := strings.Split(string(data), "\n")
 	for i, raw := range lines {
-		trimmed := strings.TrimSpace(raw)
-		body := strings.TrimPrefix(trimmed, "require ")
-		if !strings.HasPrefix(body, frameworkModule) {
+		_, ver, ok := requireEntry(raw, mods)
+		if !ok {
 			continue
 		}
-		fields := strings.Fields(body)
-		if len(fields) < 2 {
-			continue
-		}
-		mod := fields[0]
-		if mod != frameworkModule && mod != frameworkModule+"/contrib" {
-			continue
-		}
-		// Replace the last field (the version) in place, preserving prefix.
-		lastVer := fields[len(fields)-1]
-		lines[i] = strings.Replace(raw, lastVer, to, 1)
+		lines[i] = strings.Replace(raw, ver, to, 1)
 	}
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
 }

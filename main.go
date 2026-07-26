@@ -50,6 +50,9 @@ func run(args []string, out, errW io.Writer) int {
 	case "vet":
 		return cmdVet(args[1:], out, errW)
 
+	case "upgrade":
+		return cmdUpgrade(args[1:], out, errW)
+
 	case "fleet":
 		return cmdFleet(args[1:], out, errW)
 
@@ -112,6 +115,14 @@ func usage(w io.Writer) {
        --format github            GitHub Actions annotations; selected
                                   automatically when GITHUB_ACTIONS=true, so
                                   a plain vet run annotates a PR unasked
+  ultra upgrade [--to vX.Y.Z]     move THIS product onto a framework release
+                                  (latest unless --to): trues the ultrastack
+                                  pins, then go mod tidy → build → test. A
+                                  failure restores go.mod/go.sum; contract
+                                  drift is refreshed and reported, never
+                                  committed. --all adds "go get -u ./..." for
+                                  every other dependency; --dry shows the plan
+                                  and writes nothing
   ultra fleet status|vet [dir]    the whole fleet: versions, graph
                                   fingerprints + drift (--save baselines),
                                   analyzer findings across every product
