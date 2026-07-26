@@ -73,7 +73,7 @@ var App = di.Options(
 		// request's locale; codes stay the contract. The client generator
 		// derives typed catalogs (web/src/lib/i18n) from the same files.
 		i18n.Use(),                       // [i18n]: locales + default
-		i18n.Resolve,                     // ?lang > cookie > Accept-Language > default{{if .Auth}} — listed before auth.Protect{{end}}
+		i18n.Resolve,                     // ?lang > cookie > Accept-Language > default{{if .Auth}} — before Protect so the user-preference rung sees the identity{{end}}
 		i18n.Files(messages, "messages"), // the committed <locale>.toml catalogs
 {{if .DB}}
 		pg.Use(),      // [postgres]: the pool, dialed in Start
