@@ -191,8 +191,8 @@ func fence(lang, body string) []string {
 func goDoc(root, pkg, symbol string) (string, error) {
 	name := strings.TrimPrefix(pkg, "./")
 	dir := root
-	if _, err := os.Stat(filepath.Join(root, name)); err != nil {
-		if _, err2 := os.Stat(filepath.Join(root, "contrib", name)); err2 == nil {
+	if st, err := os.Stat(filepath.Join(root, name)); err != nil || !st.IsDir() {
+		if st2, err2 := os.Stat(filepath.Join(root, "contrib", name)); err2 == nil && st2.IsDir() {
 			dir = filepath.Join(root, "contrib")
 		}
 	}

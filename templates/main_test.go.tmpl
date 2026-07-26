@@ -16,7 +16,8 @@ import (
 
 {{if .DB}}	"github.com/bronystylecrazy/ultrastack/contrib/conf"
 	"github.com/bronystylecrazy/ultrastack/contrib/pg"
-{{end}}	"github.com/bronystylecrazy/ultrastack/di"
+{{end}}	"github.com/bronystylecrazy/ultrastack/contrib/fib"
+	"github.com/bronystylecrazy/ultrastack/di"
 	"github.com/bronystylecrazy/ultrastack/stack"
 )
 
@@ -37,7 +38,7 @@ func TestBoot(t *testing.T) {
 {{- if .DB}}
 	requirePostgres(t)
 {{- end}}
-	app := di.TestApp(t, App, di.Supply(stack.Addr(":0")))
+	app := di.TestApp(t, App, di.Supply(fib.Addr(":0")))
 	if err := app.ConstructAll(); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func TestBoot(t *testing.T) {
 	}
 	defer app.Stop(ctx)
 
-	resp, err := http.Get("http://" + di.MustGet[*stack.Server](app).Addr() + "/healthz")
+	resp, err := http.Get("http://" + di.MustGet[*fib.Server](app).Addr() + "/healthz")
 	if err != nil {
 		t.Fatal(err)
 	}

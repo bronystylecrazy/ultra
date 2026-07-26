@@ -19,14 +19,12 @@ import (
 {{- if .Auth}}
 	"github.com/bronystylecrazy/ultrastack/contrib/auth"
 {{- end}}
-	"github.com/bronystylecrazy/ultrastack/contrib/conf"
 {{- if .DB}}
 	"github.com/bronystylecrazy/ultrastack/contrib/migrate"
 	"github.com/bronystylecrazy/ultrastack/contrib/pg"
 {{- end}}
-	"github.com/bronystylecrazy/ultrastack/contrib/zlog"
+	"github.com/bronystylecrazy/ultrastack/contrib/ultra"
 	"github.com/bronystylecrazy/ultrastack/di"
-	"github.com/bronystylecrazy/ultrastack/stack"
 
 	"{{.Module}}/internal/app"
 )
@@ -46,10 +44,9 @@ var migrations embed.FS
 // and e2e drives the built binary. Never reassign it: ultravet resolves the
 // var only while it has a single writer.
 var App = di.Options(
-	stack.Product( // *slog.Logger + HTTP on :8080 + /healthz, /ops/*
-		conf.Use(),   // config.toml (ULTRA_CONFIG overrides the path)
-		zlog.Use(), // [log]: zerolog behind the *slog.Logger seam
-
+	ultra.Product( // the paved road: config + zerolog + Fiber on [http] +
+	               // /healthz, /ops/*, /metrics + traces/metrics (dormant
+	               // until [otel] or env configures an exporter)
 		// The typed edge. Contracts are declared once, in Go, with logical
 		// paths; OpenAPI, the TS client, the error codes and the dev proxy
 		// are all derived. `go run . client --out web/src/lib/api`.
@@ -93,7 +90,6 @@ var App = di.Options(
 {{- end}}
 //	jobs.Use()                    durable background jobs + cron
 //	ws.Use()                      the realtime hub
-//	otel.Use() + otel.TraceRoutes traces, metrics, logs
 //	rate.Use()                    identity-keyed rate limiting
 
 func main() { cli.Run(App) }
