@@ -115,7 +115,8 @@ func TestDevWatchDirsSkipsExcludedTrees(t *testing.T) {
 			"internal/app/orders/testdata/golden.go",
 		})
 	want := []string{".", "internal", "internal/app", "internal/app/orders", "internal/db", "internal/db/gen"}
-	if got := watchedRels(t, root, devWatchDirs(root)); !reflect.DeepEqual(got, want) {
+	dirs, _ := devWatchDirs(root)
+	if got := watchedRels(t, root, dirs); !reflect.DeepEqual(got, want) {
 		t.Fatalf("watched dirs = %v, want %v", got, want)
 	}
 }
@@ -143,8 +144,16 @@ func TestDevWatchDirsSkipsTreesWithNoGoInThem(t *testing.T) {
 		"internal", "internal/app", "internal/app/orders",
 		"tools", "tools/gen", "tools/gen/deep",
 	}
-	if got := watchedRels(t, root, devWatchDirs(root)); !reflect.DeepEqual(got, want) {
+	dirs, pruned := devWatchDirs(root)
+	if got := watchedRels(t, root, dirs); !reflect.DeepEqual(got, want) {
 		t.Fatalf("watched dirs = %v, want %v", got, want)
+	}
+	// And what was dropped is reported as the TOP of each dropped subtree —
+	// `internal/db`, not `internal/db/migrations` — because that is the list
+	// the rescan walks, and walking a directory twice is walking it twice.
+	wantPruned := []string{"dist", "docs", "internal/db"}
+	if got := watchedRels(t, root, pruned); !reflect.DeepEqual(got, wantPruned) {
+		t.Fatalf("pruned roots = %v, want %v", got, wantPruned)
 	}
 }
 
@@ -163,7 +172,8 @@ func TestDevWatchDirsIgnoresTheSizeOfTheFrontend(t *testing.T) {
 	files = append(files, "main.go", "go.mod", "internal/app/app.go")
 	root := watchTree(t, dirs, files)
 
-	got := watchedRels(t, root, devWatchDirs(root))
+	watched, _ := devWatchDirs(root)
+	got := watchedRels(t, root, watched)
 	want := []string{".", "internal", "internal/app"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("watched dirs = %v, want %v — the frontend leaked into the watch set", got, want)
@@ -185,8 +195,133 @@ func TestDevNewWatchDirsWatchesAnEmptyNewPackage(t *testing.T) {
 	}
 	// And the startup set, on the same tree, watches only the root: nothing
 	// here can rebuild anything yet.
-	if got := watchedRels(t, root, devWatchDirs(root)); !reflect.DeepEqual(got, []string{"."}) {
+	dirs, _ := devWatchDirs(root)
+	if got := watchedRels(t, root, dirs); !reflect.DeepEqual(got, []string{"."}) {
 		t.Fatalf("startup watch set = %v, want [.]", got)
+	}
+}
+
+// ---- the rescan that closes the content prune's blind spot ----
+
+// startRescanWatcher wires a watcher whose rescan is driven by the returned
+// channel instead of the clock, pumps it, and returns the change stream. tick
+// is unbuffered, so a send that COMPLETES proves the previous rescan returned —
+// that is the test's only synchronisation, and it needs no sleeps.
+func startRescanWatcher(t *testing.T, root string) (*devWatcher, chan time.Time, chan string) {
+	t.Helper()
+	w, err := newDevWatcher(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { w.Close() })
+	tick := make(chan time.Time)
+	w.rescan = tick
+	changes := make(chan string, 8)
+	go w.pump(changes, io.Discard)
+	return w, tick, changes
+}
+
+// The case the content prune used to lose: a directory that existed at startup
+// with no Go under it is watched by nothing, so its first .go file delivers no
+// event at all. Only a walk can notice, and the rescan is that walk.
+func TestDevWatcherAdoptsAGoFileUnderAPrunedTree(t *testing.T) {
+	root := watchTree(t,
+		[]string{"docs/adr", "internal/db/migrations"},
+		[]string{"main.go", "go.mod", "docs/README.md", "internal/db/migrations/0001_init.sql"})
+	w, tick, changes := startRescanWatcher(t, root)
+
+	// Nothing has changed yet, and a rescan of prose and SQL says so twice.
+	tick <- time.Now()
+	tick <- time.Now()
+	select {
+	case p := <-changes:
+		t.Fatalf("an idle rescan invented a change: %q", p)
+	default:
+	}
+
+	// Two levels below the root, one below the pruned top: docs/ is unwatched,
+	// docs/adr/ is unwatched, and the file lands in silence.
+	if err := os.WriteFile(filepath.Join(root, "docs/adr/gen.go"), []byte("package adr\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tick <- time.Now()
+	select {
+	case got := <-changes:
+		if got != "docs/adr/gen.go" {
+			t.Fatalf("rescan reported %q, want docs/adr/gen.go", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first .go file under docs/ triggered nothing — the blind spot is open")
+	}
+
+	// A whole package tree created inside a still-pruned subtree: no directory
+	// on the way down was watched, so no Create event was ever delivered.
+	deep := filepath.Join(root, "internal/db/migrations/gen/model")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "model.go"), []byte("package model\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tick <- time.Now()
+	select {
+	case got := <-changes:
+		if got != "internal/db/migrations/gen/model/model.go" {
+			t.Fatalf("rescan reported %q, want internal/db/migrations/gen/model/model.go", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a new package nested inside a pruned tree triggered nothing")
+	}
+
+	// Adoption means real watches, so the SECOND save arrives as an event —
+	// the rescan is how a subtree gets in, not how it is polled forever.
+	want := []string{
+		".",
+		"docs", "docs/adr",
+		"internal", "internal/db", "internal/db/migrations",
+		"internal/db/migrations/gen", "internal/db/migrations/gen/model",
+	}
+	got := watchedRels(t, root, w.w.WatchList())
+	slices.Sort(got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("watch set after adoption = %v, want %v", got, want)
+	}
+}
+
+// The prune's win is the whole reason it exists — 3,778 descriptors down to
+// 248 on a Mac — so the rescan must not creep the watch set back up. An idle
+// loop over a big Go-free tree registers exactly what it registered at startup.
+func TestDevWatcherIdleRescanDoesNotGrowTheWatchSet(t *testing.T) {
+	var dirs, files []string
+	for i := range 100 {
+		d := fmt.Sprintf("docs/adr/%d", i)
+		dirs = append(dirs, d, fmt.Sprintf("dist/assets/%d", i))
+		files = append(files, d+"/note.md", fmt.Sprintf("dist/assets/%d/app.css", i))
+	}
+	files = append(files, "main.go", "go.mod", "internal/app/app.go")
+	root := watchTree(t, dirs, files)
+	w, tick, changes := startRescanWatcher(t, root)
+
+	want := []string{".", "internal", "internal/app"}
+	baseline := watchedRels(t, root, w.w.WatchList())
+	slices.Sort(baseline)
+	if !reflect.DeepEqual(baseline, want) {
+		t.Fatalf("startup watch set = %v, want %v", baseline, want)
+	}
+	for range 10 {
+		tick <- time.Now()
+	}
+	tick <- time.Now() // completes only once the tenth rescan has returned
+
+	got := watchedRels(t, root, w.w.WatchList())
+	slices.Sort(got)
+	if !reflect.DeepEqual(got, baseline) {
+		t.Fatalf("ten idle rescans grew the watch set to %v, want %v", got, baseline)
+	}
+	select {
+	case p := <-changes:
+		t.Fatalf("an idle rescan of a 400-entry Go-free tree invented a change: %q", p)
+	default:
 	}
 }
 

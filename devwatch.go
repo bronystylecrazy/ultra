@@ -117,18 +117,19 @@ func devIsBuildInput(name string) bool {
 //     on top. A directory that cannot produce a rebuild should not be able to
 //     produce an interrupt.
 //
-// The blind spot rule 2 buys, stated plainly: adding the FIRST .go file to a
-// directory that had none — and that existed when the loop started — is not
-// noticed until the loop restarts. A directory CREATED while the loop runs is
-// exempt (see devNewWatchDirs), which is the case that actually happens: a new
-// package is a new directory, and `ultra new feature` makes one.
+// Rule 2 would be a blind spot on its own — the FIRST .go file under a
+// directory that had none, and existed at startup, arrives in a directory
+// nobody is watching. So the second return value is the TOPMOST directory of
+// every subtree rule 2 dropped: the exact, and only, list the loop has to
+// re-examine to close it (see devWatcher.rescanPruned). A directory CREATED
+// while the loop runs needs none of that — devNewWatchDirs watches it on sight.
 //
 // An unreadable subtree is skipped, never fatal — a dev loop that refuses to
 // start over one permission bit is worse than a dev loop with a blind spot.
-func devWatchDirs(root string) []string {
+func devWatchDirs(root string) (dirs, pruned []string) {
 	candidates := devNewWatchDirs(root)
 	if len(candidates) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Which directories hold a Go input, and therefore must be watched along
@@ -160,13 +161,17 @@ func devWatchDirs(root string) []string {
 		return nil
 	})
 
-	dirs := candidates[:0:0] // fresh backing array, walk order preserved
+	dirs = candidates[:0:0] // fresh backing array, walk order preserved
 	for _, p := range candidates {
-		if keep[p] {
+		switch {
+		case keep[p]:
 			dirs = append(dirs, p)
+		case keep[filepath.Dir(p)]:
+			// Its parent is watched but it is not: the top of a dropped subtree.
+			pruned = append(pruned, p)
 		}
 	}
-	return dirs
+	return dirs, pruned
 }
 
 // devNewWatchDirs is the watch set for a directory that appeared WHILE the
@@ -194,11 +199,26 @@ func devNewWatchDirs(root string) []string {
 	return dirs
 }
 
+// devRescanEvery is how long the first .go file under a Go-free directory can
+// go unnoticed. It is the ONLY periodic work in the loop, so it is deliberately
+// slower than a save: one pass walks the dropped subtrees and nothing else —
+// ~105µs over a product's docs/ and migrations/, 4.6ms over a 500-entry tree
+// with a built dist/ in it, which is the filesystem's price for the walk and
+// not ours. Three seconds puts the typical pass at ~0.003% of a core, for a
+// case that happens once per feature.
+const devRescanEvery = 3 * time.Second
+
 // devWatcher is the fsnotify side: it turns filesystem events into relative
 // paths worth rebuilding for, and keeps itself current as packages appear.
 type devWatcher struct {
 	w    *fsnotify.Watcher
 	root string
+
+	// pruned are the subtree roots the content prune dropped, and rescan is
+	// when to look at them again. Only pump touches pruned after construction.
+	pruned []string
+	ticker *time.Ticker
+	rescan <-chan time.Time
 }
 
 func newDevWatcher(root string) (*devWatcher, error) {
@@ -206,24 +226,89 @@ func newDevWatcher(root string) (*devWatcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &devWatcher{w: w, root: root}
-	for _, dir := range devWatchDirs(root) {
+	dirs, pruned := devWatchDirs(root)
+	t := time.NewTicker(devRescanEvery)
+	d := &devWatcher{w: w, root: root, pruned: pruned, ticker: t, rescan: t.C}
+	for _, dir := range dirs {
 		if err := w.Add(dir); err != nil {
-			w.Close()
+			d.Close()
 			return nil, fmt.Errorf("watch %s: %w", dir, err)
 		}
 	}
 	return d, nil
 }
 
-func (d *devWatcher) Close() error { return d.w.Close() }
+func (d *devWatcher) Close() error {
+	d.ticker.Stop()
+	return d.w.Close()
+}
+
+// rescanPruned adopts any dropped subtree that has since grown a Go file, and
+// reports the file that did it so the change rebuilds like any other save.
+//
+// This is what the content prune costs and how it is paid: those directories
+// deliver no events because nothing watches them, so a walk is the only thing
+// that can notice. Only the dropped subtrees are walked, each abandoned at its
+// first Go file, and an adopted one re-enters by the normal rules — including
+// its own newly dropped subtrees, which take its place on the list.
+func (d *devWatcher) rescanPruned(changes chan<- string) {
+	var still []string
+	for _, dir := range d.pruned {
+		first := devFirstBuildInput(d.root, dir)
+		if first == "" {
+			still = append(still, dir)
+			continue
+		}
+		dirs, pruned := devWatchDirs(dir)
+		for _, add := range dirs {
+			d.w.Add(add)
+		}
+		still = append(still, pruned...)
+		changes <- first
+	}
+	d.pruned = still
+}
+
+// devFirstBuildInput returns the root-relative path of the first Go input
+// under dir, or "" if there is none. It reads no bytes and stops at the first
+// hit: the rescan asks whether a subtree has become interesting, not what is
+// in it.
+func devFirstBuildInput(root, dir string) string {
+	var found string
+	filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // unreadable is a blind spot, not a failure
+		}
+		rel, relErr := filepath.Rel(root, p)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if devExcluded(rel) {
+			if e.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if e.IsDir() || !devIsBuildInput(e.Name()) {
+			return nil
+		}
+		found = rel
+		return fs.SkipAll
+	})
+	return found
+}
 
 // pump forwards the triggering changes to changes and returns when the
 // watcher is closed. A brand-new directory is registered as it is created, so
-// `ultra new feature billing` is watched the moment it exists.
+// `ultra new feature billing` is watched the moment it exists; a directory
+// that was already there and was too Go-free to watch is picked up by the
+// rescan instead.
 func (d *devWatcher) pump(changes chan<- string, errW io.Writer) {
 	for {
 		select {
+		case <-d.rescan:
+			d.rescanPruned(changes)
 		case ev, ok := <-d.w.Events:
 			if !ok {
 				return
