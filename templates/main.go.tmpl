@@ -84,7 +84,7 @@ var App = di.Options(
 //	pg.Use() + migrate.Use()   Postgres pool + embedded migrations
 {{- end}}
 {{- if .Auth}}
-//	authpg.Stores()                  durable users/sessions in Postgres
+//	authpg.Use()                  durable users + API keys in Postgres
 {{- else}}
 //	auth.Use() + auth.Protect     identity + route enforcement
 {{- end}}

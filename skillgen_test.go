@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -34,4 +35,58 @@ func TestReferencesUpToDate(t *testing.T) {
 			"run `ultra skill gen` (or `go run ./cmd/ultra skill gen`) from the repo root to regenerate.",
 			stale)
 	}
+}
+
+// handWrittenGoBlocks pins how many ```go blocks in each doctrine reference are
+// NOT generated from compiled code. The policy: a new Go snippet in these files
+// is a compiled example — an Example body (`ultra:gen example`) or a snip of a
+// real declaration (`ultra:gen snip`) — because hand-written wiring rots
+// silently while compiled wiring fails the build. The remaining ones are
+// deliberate FRAGMENTS that no compiler can hold:
+//
+//	kernel.md  the parameter list without a function around it, the
+//	           Start/Stop/Healthy convention sketch, and the PerKey / Family
+//	           sketches whose real signatures are already `go doc` blocks below
+//	           them.
+//
+// If you add a deliberate fragment, bump the count here and say why — a
+// regression should be a conscious act, not drift.
+var handWrittenGoBlocks = map[string]int{
+	"kernel.md":  4,
+	"product.md": 0,
+}
+
+func TestReferenceSnippetsAreCompiled(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range handWrittenGoBlocks {
+		src, err := os.ReadFile(filepath.Join(root, "references", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := countHandWrittenGo(string(src)); got != want {
+			t.Errorf("references/%s: %d hand-written ```go blocks, pinned at %d\n"+
+				"convert the new snippet to a compiled example (see cmd/ultra/skillgen.go), "+
+				"or bump the pin in handWrittenGoBlocks with a reason.", name, got, want)
+		}
+	}
+}
+
+// countHandWrittenGo counts ```go fences that live outside `ultra:gen` blocks.
+func countHandWrittenGo(content string) int {
+	n, generated := 0, false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case genOpenRe.MatchString(trimmed):
+			generated = true
+		case trimmed == genEndMarker:
+			generated = false
+		case trimmed == "```go" && !generated:
+			n++
+		}
+	}
+	return n
 }
