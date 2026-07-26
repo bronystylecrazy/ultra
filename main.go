@@ -148,7 +148,11 @@ func usage(w io.Writer) {
                                   openapi.json + the typed client (changed
                                   bytes only). A red build keeps the previous
                                   binary serving. The frontend dev server runs
-                                  beside it under the same Ctrl-C
+                                  beside it under the same Ctrl-C. On a
+                                  terminal every child runs on a PTY, so vite
+                                  and the API colour and buffer as if you had
+                                  run them yourself (--no-pty, or NO_COLOR,
+                                  opts out)
   ultra contrib list              this product's capabilities: WIRED (the
                                   presets it imports, with the entry spelling
                                   it used) and AVAILABLE (the rest, one line

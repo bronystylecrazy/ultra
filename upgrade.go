@@ -170,22 +170,28 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 		}
 	}
 
+	col := colorFor(out)
+	errCol := colorFor(errW)
 	fmt.Fprintf(out, "ultra upgrade — %s\n\n", module)
 	width := 0
 	for _, p := range pins {
 		width = max(width, len(p.Module))
 	}
 	for _, p := range pins {
-		arrow := p.Version + " → " + to
+		// The version you are LEAVING dims and the one you are arriving at
+		// is green: the eye should land on the target, and a table of a dozen
+		// pins should read as one movement rather than a dozen pairs.
+		arrow := col.dim(p.Version) + " → " + col.green(to)
 		if p.Version == to {
-			arrow = p.Version + " (already current)"
+			arrow = col.dim(p.Version + " (already current)")
 		}
 		fmt.Fprintf(out, "  %-*s  %s\n", width, p.Module, arrow)
 	}
 	for _, r := range replaces {
-		fmt.Fprintf(out, "\n  note       replace active: %s\n"+
+		fmt.Fprintf(out, "\n  %s       replace active: %s\n"+
 			"             the pins are trued, but the build verifies against the replace\n"+
-			"             target — not the tag. Drop the replace to verify the release.\n", r)
+			"             target — not the tag. Drop the replace to verify the release.\n",
+			col.yellow("note"), r)
 	}
 
 	if dry {
@@ -219,8 +225,8 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 	}
 	fail := func(step, output string) int {
 		restore()
-		fmt.Fprintf(errW, "\nultra upgrade: %s failed at %s — go.mod and go.sum restored to %s\n\n%s\n",
-			step, to, from, headOf(output, 20))
+		fmt.Fprintf(errW, "\n%s: %s failed at %s — go.mod and go.sum restored to %s\n\n%s\n",
+			errCol.red("ultra upgrade"), step, to, from, headOf(output, 20))
 		return 1
 	}
 
@@ -267,14 +273,16 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 			// A regenerated client is a tree, not a file we saved: say so
 			// rather than pretend the revert covered it.
 			if slices.Contains(touched, clientDir) {
-				fmt.Fprintf(errW, "\nnote: %s was regenerated before the rerun failed — check it with git\n", clientDir)
+				fmt.Fprintf(errW, "\n%s: %s was regenerated before the rerun failed — check it with git\n",
+					errCol.yellow("note"), clientDir)
 			}
 			return code
 		}
 		contracts = "refreshed by the upgrade — review the diff before committing"
 	}
 
-	fmt.Fprintf(out, "\n  verified   go mod tidy · go build ./... · go test ./... (%s)\n", packageCount(testOut))
+	fmt.Fprintf(out, "\n  %s   go mod tidy · go build ./... · go test ./... (%s)\n",
+		col.green("verified"), packageCount(testOut))
 	fmt.Fprintf(out, "  contracts  %s\n", contracts)
 	for _, line := range changedPaths(dir, touched) {
 		fmt.Fprintf(out, "               %s\n", line)

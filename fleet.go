@@ -253,6 +253,10 @@ func fleetStatus(repos []fleetProduct, root string, save, jsonOut bool, out, err
 		enc.SetIndent("", "  ")
 		enc.Encode(repos)
 	} else {
+		// DRIFT is the column you scan a fleet table FOR — the one cell that
+		// turns a listing into a task. It is also the last column, so the
+		// escape sequences never disturb the %-*s alignment of the others.
+		col := colorFor(out)
 		fmt.Fprintf(out, "%-32s %-12s %-14s %-6s %s\n", "PRODUCT", "FRAMEWORK", "FINGERPRINT", "COMPS", "DRIFT")
 		for _, p := range repos {
 			ver := p.Version
@@ -261,9 +265,14 @@ func fleetStatus(repos []fleetProduct, root string, save, jsonOut bool, out, err
 			}
 			fp := short(p.Fingerprint)
 			if p.Err != "" {
-				fp = "error: " + p.Err
+				fp = "error: " + p.Err // uncoloured: a padded column and an
+				// escape sequence cannot share a width
 			}
-			fmt.Fprintf(out, "%-32s %-12s %-14s %-6d %s\n", p.Module, ver, fp, p.Components, p.Drift)
+			drift := p.Drift
+			if strings.HasPrefix(drift, "DRIFT") {
+				drift = col.red(drift)
+			}
+			fmt.Fprintf(out, "%-32s %-12s %-14s %-6d %s\n", p.Module, ver, fp, p.Components, drift)
 		}
 	}
 
