@@ -42,8 +42,12 @@ func cmdMCP(in io.Reader, out, errW io.Writer) int {
 	s := &mcpServer{in: bufio.NewReader(in), out: out}
 	if err := s.run(); err != nil {
 		fmt.Fprintln(errW, "ultra mcp:", err)
+		failVerdict(errW, "mcp", err.Error())
 		return 1
 	}
+	// stdout is the JSON-RPC wire and belongs to the client; the verdict rides
+	// stderr, which an MCP host shows as server logs.
+	verdict(errW, "mcp", "session closed")
 	return 0
 }
 
@@ -254,7 +258,7 @@ func toolVet(raw json.RawMessage) (string, error) {
 		return diag.String(), nil
 	}
 	var buf strings.Builder
-	if code := runAnalyzer(a.Dir, []string{"-json", "./..."}, &buf, &buf); code == -1 {
+	if code, _ := runAnalyzer(a.Dir, []string{"-json", "./..."}, &buf, &buf); code == -1 {
 		return "", fmt.Errorf("vet: could not run the analyzer (install ultravet, or set GOPRIVATE for `go run`)")
 	}
 	return buf.String(), nil
@@ -311,7 +315,7 @@ func toolDiff(raw json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	report, _ := diffGraphs(string(oldB), string(newB))
+	report, _, _ := diffGraphs(string(oldB), string(newB))
 	return report, nil
 }
 

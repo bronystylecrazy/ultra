@@ -56,27 +56,32 @@ var genOpenRe = regexp.MustCompile(`^<!--\s*ultra:gen\s+(doc|example|snip|codes)
 
 const genEndMarker = "<!-- ultra:gen end -->"
 
-// cmdSkill implements `ultra skill <sub>`; only `gen` exists today.
+// cmdSkill implements `ultra skill <sub>`. Dispatch already proved the
+// subcommand exists (help.go owns the tree and the did-you-mean), so the
+// fallthrough here is unreachable in practice and defensive on purpose.
 func cmdSkill(args []string, out, errW io.Writer) int {
 	if len(args) > 0 && args[0] == "install" {
 		return cmdSkillInstall(args[1:], out, errW)
 	}
 	if len(args) == 0 || args[0] != "gen" {
-		fmt.Fprintln(errW, "usage: ultra skill gen | ultra skill install [--check] [--force]")
+		ultraTree().find("skill").help(errW)
 		return 2
 	}
 	root, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "skill gen", err.Error())
 		return 1
 	}
 	if _, err := os.Stat(filepath.Join(root, "references")); err != nil {
 		fmt.Fprintln(errW, "ultra skill gen: run from the repo root (no references/ directory here)")
+		failVerdict(errW, "skill gen", "not a repo root")
 		return 1
 	}
 	files, err := skillGen(root)
 	if err != nil {
 		fmt.Fprintln(errW, "ultra skill gen:", err)
+		failVerdict(errW, "skill gen", err.Error())
 		return 1
 	}
 	changed := 0
@@ -87,14 +92,17 @@ func cmdSkill(args []string, out, errW io.Writer) int {
 		}
 		if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
 			fmt.Fprintln(errW, err)
+			failVerdict(errW, "skill gen", err.Error())
 			return 1
 		}
 		fmt.Fprintln(out, "wrote", rel)
 		changed++
 	}
 	if changed == 0 {
-		fmt.Fprintln(out, "references are up to date")
+		verdict(errW, "skill gen", "references up to date")
+		return 0
 	}
+	verdict(errW, "skill gen", "wrote "+count(changed, "file"))
 	return 0
 }
 

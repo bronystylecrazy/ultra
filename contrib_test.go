@@ -475,7 +475,7 @@ type Repo struct{ db *pg.DB }
 	for _, phrase := range []string{
 		"root: ultra.New at main.go:",
 		"WIRED (2)",
-		`api        api.Use(api.Info{Title: "shop", Version: version})`,
+		`api  api.Use(api.Info{Title: "shop", Version: version})`,
 		"main.go:17",
 		"internal/app/app.go:4",
 		"AVAILABLE (19)",

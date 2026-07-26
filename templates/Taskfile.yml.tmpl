@@ -51,15 +51,26 @@ tasks:
       - task: check
 {{- end}}
 
+  # ONE version string reaches the binary, the OpenAPI document and the typed
+  # client: main.go reads cli.AppVersion with a fallback, and every verb that
+  # BUILDS stamps it from git. A tagged commit builds as v1.2.3; anything else
+  # builds as the short hash, with -dirty when the tree is not clean. An
+  # unstamped build (task dev:api, go run .) falls back to main.go's literal.
   build:
     desc: The single binary{{if .Web}} — the frontend builds first, then the embed{{end}}
+    silent: true
     cmds:
+      - |
+        set -e
+        VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+        STAMP="-X github.com/bronystylecrazy/ultrastack/cli.AppVersion=$VERSION"
 {{- if .Web}}
-      - cd web && bun run build
-      - go build -tags embedspa -o bin/{{.Name}} .
+        (cd web && bun run build)
+        go build -tags embedspa -ldflags "$STAMP" -o bin/{{.Name}} .
 {{- else}}
-      - go build -o bin/{{.Name}} .
+        go build -ldflags "$STAMP" -o bin/{{.Name}} .
 {{- end}}
+        echo "built bin/{{.Name}} $VERSION"
 
   run:
     desc: Build, then serve the single binary
@@ -85,7 +96,12 @@ tasks:
         if [ -z "$BASE_URL" ]; then
           echo "task e2e: building the frontend, then the embedspa binary"
           cd web && bun install && bun run build && cd ..
-          go build -tags embedspa -o bin/{{.Name}}-e2e .
+          # Stamped like `task build`: e2e drives the REAL binary, and a real
+          # binary knows its own version.
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+          go build -tags embedspa \
+            -ldflags "-X github.com/bronystylecrazy/ultrastack/cli.AppVersion=$VERSION" \
+            -o bin/{{.Name}}-e2e .
         fi
         cd web
         # The browser build is a one-time ~100MB download, a no-op after that;

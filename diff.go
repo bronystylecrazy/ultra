@@ -10,12 +10,19 @@ import (
 
 // codesText is the `ultra codes` registry: every code with its one-line
 // summary. Shared by the CLI and the mcp `codes` tool.
+//
+// Through the table helper like every other column in this binary: kernel
+// codes are all six characters today, so the old fixed gap happened to line
+// up — but "happens to line up" is not a property, and the day a longer code
+// is registered the whole listing shears.
 func codesText() string {
 	var b strings.Builder
+	t := newTable(&b)
 	for _, c := range diag.AllCodes() {
 		lesson, _ := diag.Lesson(c)
-		fmt.Fprintf(&b, "%s  %s\n", c, firstLine(lesson))
+		t.row(string(c), firstLine(lesson))
 	}
+	t.flush()
 	return b.String()
 }
 
@@ -23,7 +30,10 @@ func codesText() string {
 // "head <- [deps]", where head identifies the provider (type, kind,
 // module). Providers are matched by head, so a changed dependency list
 // shows as a modification rather than a remove+add.
-func diffGraphs(oldS, newS string) (report string, changed bool) {
+//
+// It returns the change count as well as the rendered report so the caller's
+// verdict line can say how many without re-parsing its own output.
+func diffGraphs(oldS, newS string) (report string, changed bool, changes int) {
 	oldM := parseSummary(oldS)
 	newM := parseSummary(newS)
 
@@ -48,7 +58,7 @@ func diffGraphs(oldS, newS string) (report string, changed bool) {
 
 	n := len(added) + len(removed) + len(modified)
 	if n == 0 {
-		return "graphs are identical\n", false
+		return "graphs are identical\n", false, 0
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "graph diff (%d change(s)):\n", n)
@@ -61,7 +71,7 @@ func diffGraphs(oldS, newS string) (report string, changed bool) {
 	for _, l := range modified {
 		fmt.Fprintf(&b, "  ~ %s\n", l)
 	}
-	return b.String(), true
+	return b.String(), true, n
 }
 
 // parseSummary maps "head <- [deps]" lines to head → deps.

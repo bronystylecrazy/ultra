@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -40,7 +41,7 @@ type fleetProduct struct {
 
 func cmdFleet(args []string, out, errW io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(errW, "usage: ultra fleet status|vet|bump|profiles [dir] [flags]")
+		ultraTree().find("fleet").help(errW)
 		return 2
 	}
 	sub := args[0]
@@ -71,6 +72,7 @@ func cmdFleet(args []string, out, errW io.Writer) int {
 	repos := discoverFleet(root)
 	if len(repos) == 0 {
 		fmt.Fprintf(errW, "no ultrastack products under %s (looked for go.mod requiring %s)\n", root, frameworkModule)
+		failVerdict(errW, "fleet "+sub, "no products found under "+root)
 		return 1
 	}
 
@@ -80,7 +82,7 @@ func cmdFleet(args []string, out, errW io.Writer) int {
 	case "vet":
 		return fleetVet(repos, out, errW)
 	default:
-		fmt.Fprintf(errW, "unknown fleet command %q (status|vet|bump|profiles)\n", sub)
+		ultraTree().find("fleet").unknown(errW, sub)
 		return 2
 	}
 }
@@ -136,6 +138,10 @@ func discoverFleet(root string) []fleetProduct {
 	sort.Slice(out, func(i, j int) bool { return out[i].Dir < out[j].Dir })
 	return out
 }
+
+// fingerprintOf is the seam fleetStatus goes through, so a rendering test can
+// supply the numbers instead of booting a product per row.
+var fingerprintOf = fingerprint
 
 // fingerprint asks the product itself: `go run . graph --json` — every
 // product is a toolbox, so the fleet needs no special hooks.
@@ -223,7 +229,7 @@ func fleetStatus(repos []fleetProduct, root string, save, jsonOut bool, out, err
 	}
 
 	for i := range repos {
-		fingerprint(&repos[i])
+		fingerprintOf(&repos[i])
 		if base, ok := baseline[repos[i].Module]; ok && repos[i].Fingerprint != "" {
 			if base == repos[i].Fingerprint {
 				repos[i].Drift = "—"
@@ -243,6 +249,7 @@ func fleetStatus(repos []fleetProduct, root string, save, jsonOut bool, out, err
 		data, _ := json.MarshalIndent(next, "", "  ")
 		if err := os.WriteFile(statePath, data, 0o644); err != nil {
 			fmt.Fprintln(errW, err)
+			failVerdict(errW, "fleet status", err.Error())
 			return 1
 		}
 		fmt.Fprintf(out, "baseline saved: %s (%d products)\n", statePath, len(next))
@@ -253,11 +260,16 @@ func fleetStatus(repos []fleetProduct, root string, save, jsonOut bool, out, err
 		enc.SetIndent("", "  ")
 		enc.Encode(repos)
 	} else {
-		// DRIFT is the column you scan a fleet table FOR — the one cell that
-		// turns a listing into a task. It is also the last column, so the
-		// escape sequences never disturb the %-*s alignment of the others.
+		// tabwriter, because a module path is data and data has no width: the
+		// %-32s this used to be sheared every row of a fleet whose longest
+		// module name ran past 32 characters, and DRIFT — the one column a
+		// fleet table exists to be scanned for — was the column that moved.
+		//
+		// DRIFT is also deliberately LAST, which is what makes it the cell
+		// allowed to carry colour (see table.go).
 		col := colorFor(out)
-		fmt.Fprintf(out, "%-32s %-12s %-14s %-6s %s\n", "PRODUCT", "FRAMEWORK", "FINGERPRINT", "COMPS", "DRIFT")
+		t := newTable(out)
+		t.row("PRODUCT", "FRAMEWORK", "FINGERPRINT", "COMPS", "DRIFT")
 		for _, p := range repos {
 			ver := p.Version
 			if p.Replaced {
@@ -265,23 +277,31 @@ func fleetStatus(repos []fleetProduct, root string, save, jsonOut bool, out, err
 			}
 			fp := short(p.Fingerprint)
 			if p.Err != "" {
-				fp = "error: " + p.Err // uncoloured: a padded column and an
-				// escape sequence cannot share a width
+				fp = "error: " + p.Err
 			}
 			drift := p.Drift
 			if strings.HasPrefix(drift, "DRIFT") {
 				drift = col.red(drift)
 			}
-			fmt.Fprintf(out, "%-32s %-12s %-14s %-6d %s\n", p.Module, ver, fp, p.Components, drift)
+			t.row(p.Module, ver, fp, strconv.Itoa(p.Components), drift)
 		}
+		t.flush()
 	}
 
-	code := 0
+	code, drifted, broken := 0, 0, 0
 	for _, p := range repos {
+		if p.Err != "" {
+			broken++
+		}
+		if strings.HasPrefix(p.Drift, "DRIFT") {
+			drifted++
+		}
 		if p.Err != "" || strings.HasPrefix(p.Drift, "DRIFT") {
 			code = 1 // CI-friendly: drift or breakage fails the step
 		}
 	}
+	detail := fmt.Sprintf("%s, %d drifted, %d unreadable", count(len(repos), "product"), drifted, broken)
+	verdictFor(errW, code == 0, "fleet status", detail)
 	return code
 }
 
@@ -297,9 +317,10 @@ func fleetVet(repos []fleetProduct, out, errW io.Writer) int {
 	vet, err := exec.LookPath("ultravet")
 	if err != nil {
 		fmt.Fprintln(errW, "ultra fleet vet: install the analyzer first:\n  GOPRIVATE=github.com/bronystylecrazy/* go install "+analyzerModule+"@latest")
+		failVerdict(errW, "fleet vet", "the analyzer is not installed")
 		return 1
 	}
-	worst := 0
+	worst, clean := 0, 0
 	for _, p := range repos {
 		cmd := exec.Command(vet, "./...")
 		cmd.Dir = p.Dir
@@ -309,6 +330,7 @@ func fleetVet(repos []fleetProduct, out, errW io.Writer) int {
 		err := cmd.Run()
 		if err == nil {
 			fmt.Fprintf(out, "✓ %s\n", p.Module)
+			clean++
 			continue
 		}
 		worst = 1
@@ -317,5 +339,7 @@ func fleetVet(repos []fleetProduct, out, errW io.Writer) int {
 			fmt.Fprintf(out, "  %s\n", line)
 		}
 	}
+	verdictFor(errW, worst == 0, "fleet vet",
+		fmt.Sprintf("%d of %s clean", clean, count(len(repos), "product")))
 	return worst
 }

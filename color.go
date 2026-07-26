@@ -81,7 +81,7 @@ func (p palette) bold(s string) string   { return p.wrap(cBold, s) }
 // line dims, because a dimmed dot in front of bright text says nothing.
 func (p palette) banner(glyph, text string) string {
 	switch glyph {
-	case "●":
+	case "●", "✓":
 		return p.green(glyph) + " " + text
 	case "✗":
 		return p.red(glyph) + " " + text

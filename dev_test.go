@@ -593,7 +593,7 @@ func TestDevFlagParsing(t *testing.T) {
 	if code := run([]string{"dev", "--nope"}, &out, &errW); code != 2 {
 		t.Fatalf("an unknown flag must exit 2, got %d", code)
 	}
-	if !strings.Contains(errW.String(), "ultra dev: unknown argument") {
+	if !strings.Contains(errW.String(), `Error: unknown argument "--nope" for "ultra dev"`) {
 		t.Fatalf("unhelpful error: %q", errW.String())
 	}
 	// No go.mod: the loop refuses rather than building nothing forever.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -379,8 +380,22 @@ func TestFromRoundTripCovenant(t *testing.T) {
 	sh("go", "build", "./...")
 	sh("go", "test", "./...") // the covenant + the contract-drift bootstrap
 
-	// The round trip itself: the product's OWN openapi command.
-	out := sh("go", "run", ".", "openapi")
+	// The round trip itself: the product's OWN openapi command. STDOUT only:
+	// the document is a byte contract, and stderr carries the verdict line
+	// every command now ends with (`task contracts` redirects stdout for
+	// exactly this reason).
+	openapi := func() []byte {
+		t.Helper()
+		cmd := exec.Command("go", "run", ".", "openapi")
+		cmd.Dir = dir
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("go run . openapi failed: %v\n%s", err, stderr.String())
+		}
+		return stdout.Bytes()
+	}
+	out := openapi()
 	var doc struct {
 		Paths map[string]map[string]struct {
 			OperationID string   `json:"operationId"`

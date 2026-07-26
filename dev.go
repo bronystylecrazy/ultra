@@ -63,8 +63,6 @@ const (
 	devStopGrace = 10 * time.Second
 )
 
-const devUsage = "usage: ultra dev [--no-web] [--no-infra] [--no-pty] [--build-flags \"...\"] [-- <serve args>]"
-
 type devOptions struct {
 	web        bool
 	infra      bool
@@ -89,7 +87,8 @@ func cmdDev(args []string, out, errW io.Writer) int {
 			opts.noPTY = true
 		case a == "--build-flags":
 			if i+1 >= len(args) {
-				fmt.Fprintln(errW, "ultra dev: --build-flags needs a value (e.g. --build-flags \"-race\")")
+				fmt.Fprintln(errW, "Error: --build-flags needs a value (e.g. --build-flags \"-race\")")
+				fmt.Fprintln(errW, "\nRun 'ultra dev --help' for usage.")
 				return 2
 			}
 			opts.buildFlags = strings.Fields(args[i+1])
@@ -97,7 +96,9 @@ func cmdDev(args []string, out, errW io.Writer) int {
 		case strings.HasPrefix(a, "--build-flags="):
 			opts.buildFlags = strings.Fields(strings.TrimPrefix(a, "--build-flags="))
 		default:
-			fmt.Fprintf(errW, "ultra dev: unknown argument %q\n%s\n", a, devUsage)
+			node := ultraTree().find("dev")
+			fmt.Fprintf(errW, "Error: unknown argument %q for %q\n\n", a, node.path())
+			node.help(errW)
 			return 2
 		}
 	}
@@ -105,13 +106,20 @@ func cmdDev(args []string, out, errW io.Writer) int {
 	root, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "dev", err.Error())
 		return 1
 	}
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
 		fmt.Fprintf(errW, "ultra dev: no go.mod in %s — run it from inside a product.\n", root)
+		failVerdict(errW, "dev", "not a product directory")
 		return 2
 	}
-	return newDevLoop(root, opts, out, errW).run()
+	code := newDevLoop(root, opts, out, errW).run()
+	// The loop only ever returns because it stopped; say which way it went.
+	// A dev session that exits on a failed watcher used to leave nothing but
+	// the error, and the reader could not tell a crash from a clean Ctrl-C.
+	verdictFor(errW, code == 0, "dev", map[bool]string{true: "stopped cleanly", false: "stopped on an error"}[code == 0])
+	return code
 }
 
 // devLoop is the supervisor. Everything it owns is stopped by the same

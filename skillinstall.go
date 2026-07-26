@@ -41,7 +41,8 @@ func cmdSkillInstall(args []string, out, errW io.Writer) int {
 			force = true
 		default:
 			if strings.HasPrefix(a, "-") {
-				fmt.Fprintf(errW, "ultra skill install: unknown flag %s\n", a)
+				fmt.Fprintf(errW, "Error: unknown flag %q for \"ultra skill install\"\n", a)
+				fmt.Fprintln(errW, "\nRun 'ultra skill install --help' for usage.")
 				return 2
 			}
 			dir = a
@@ -51,6 +52,7 @@ func cmdSkillInstall(args []string, out, errW io.Writer) int {
 	version, src, err := skillSource(dir)
 	if err != nil {
 		fmt.Fprintln(errW, "ultra skill install:", err)
+		failVerdict(errW, "skill install", err.Error())
 		return 1
 	}
 	dest := filepath.Join(dir, skillDest)
@@ -60,14 +62,17 @@ func cmdSkillInstall(args []string, out, errW io.Writer) int {
 		b, err := os.ReadFile(metaPath)
 		if err != nil {
 			fmt.Fprintf(errW, "ultra skill install --check: no vendored skill at %s — run `ultra skill install`\n", dest)
+			failVerdict(errW, "skill install --check", "nothing vendored")
 			return 1
 		}
 		var meta skillMeta
 		if err := json.Unmarshal(b, &meta); err != nil || meta.Version != version {
 			fmt.Fprintf(errW, "ultra skill install --check: vendored skill is %s but go.mod pins %s — run `ultra skill install`\n", meta.Version, version)
+			failVerdict(errW, "skill install --check", "stale: vendored "+meta.Version+", pinned "+version)
 			return 1
 		}
 		fmt.Fprintf(out, "vendored skill matches go.mod (%s)\n", version)
+		verdict(errW, "skill install --check", "vendored skill matches "+version)
 		return 0
 	}
 
@@ -75,10 +80,12 @@ func cmdSkillInstall(args []string, out, errW io.Writer) int {
 	if _, err := os.Stat(dest); err == nil {
 		if _, merr := os.Stat(metaPath); merr != nil && !force {
 			fmt.Fprintf(errW, "ultra skill install: %s exists without %s (hand-managed?) — --force to replace it\n", dest, skillManifest)
+			failVerdict(errW, "skill install", "refused: hand-managed skill dir")
 			return 1
 		}
 		if err := os.RemoveAll(dest); err != nil {
 			fmt.Fprintln(errW, err)
+			failVerdict(errW, "skill install", err.Error())
 			return 1
 		}
 	}
@@ -86,15 +93,18 @@ func cmdSkillInstall(args []string, out, errW io.Writer) int {
 	n, err := copySkill(src, dest)
 	if err != nil {
 		fmt.Fprintln(errW, "ultra skill install:", err)
+		failVerdict(errW, "skill install", err.Error())
 		return 1
 	}
 	meta, _ := json.MarshalIndent(skillMeta{Version: version, Source: src}, "", "  ")
 	if err := os.WriteFile(metaPath, append(meta, '\n'), 0o644); err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "skill install", err.Error())
 		return 1
 	}
 	fmt.Fprintf(out, "vendored the %s skill into %s (%d files)\n", version, dest, n)
 	fmt.Fprintf(out, "agents working in this repo now read the doctrine for the EXACT framework version it pins;\n`ultra upgrade` refreshes it with the bump. Commit it: git add %s\n", skillDest)
+	verdict(errW, "skill install", fmt.Sprintf("vendored %s (%s)", version, count(n, "file")))
 	return 0
 }
 

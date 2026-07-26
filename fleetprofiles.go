@@ -58,6 +58,7 @@ func fleetProfiles(args []string, out, errW io.Writer) int {
 	repos := discoverFleet(root)
 	if len(repos) == 0 {
 		fmt.Fprintf(errW, "no ultrastack products under %s (looked for go.mod requiring %s)\n", root, frameworkModule)
+		failVerdict(errW, "fleet profiles", "no products found under "+root)
 		return 1
 	}
 
@@ -103,6 +104,7 @@ func fleetProfiles(args []string, out, errW io.Writer) int {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		enc.Encode(payload)
+		profilesVerdict(errW, profiles, skipped)
 		return 0
 	}
 
@@ -127,7 +129,22 @@ func fleetProfiles(args []string, out, errW io.Writer) int {
 	for _, s := range skipped {
 		fmt.Fprintf(out, "skipped: %s\n", s)
 	}
+	profilesVerdict(errW, profiles, skipped)
 	return 0
+}
+
+// profilesVerdict is one wording for both output modes — the human table and
+// --json describe the same run, so they end with the same sentence.
+func profilesVerdict(errW io.Writer, profiles []*fleetProfile, skipped []string) {
+	members := 0
+	for _, p := range profiles {
+		members += len(p.Members)
+	}
+	detail := fmt.Sprintf("%s across %s", count(len(profiles), "profile"), count(members, "product"))
+	if len(skipped) > 0 {
+		detail += fmt.Sprintf(", %d skipped", len(skipped))
+	}
+	verdict(errW, "fleet profiles", detail)
 }
 
 // capFingerprint is a short stable hash of a sorted capability set — the

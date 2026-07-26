@@ -276,21 +276,6 @@ func resolveVersion(flag string) string {
 	return scaffoldVersion
 }
 
-const newUsage = `usage: ultra new <name> [--module github.com/org/name] [--version vX.Y.Z]
-                      [--bare] [--db|--no-db] [--web|--no-web] [--auth|--no-auth]
-                      [--from openapi.json]
-       ultra new feature <name>
-
-  --db --web --auth are ON by default; --bare turns all three off, and a
-  later --db/--web/--auth turns one back on.
-
-  --from reverse-scaffolds an EXISTING service: an OpenAPI 3.x document in, a
-  doctrine-shaped product out — one feature package per tag, one api.Handle per
-  operation, request/response structs from the schemas, and every handler a 501
-  stub so the product boots and answers on arrival. JSON only (convert YAML
-  first). It prints a migration report of what came across and what did not.
-`
-
 // cmdNew implements `ultra new <name> [flags]` and `ultra new feature <name>`.
 func cmdNew(args []string, out, errW io.Writer) int {
 	if len(args) > 0 && args[0] == "feature" {
@@ -332,18 +317,20 @@ func cmdNew(args []string, out, errW io.Writer) int {
 		case a == "--from" && len(rest) > 1:
 			from, rest = rest[1], rest[2:]
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(errW, "unknown flag %q\n%s", a, newUsage)
+			node := ultraTree().find("new")
+			fmt.Fprintf(errW, "Error: unknown flag %q for %q\n\n", a, node.path())
+			node.help(errW)
 			return 2
 		default:
 			if name != "" {
-				fmt.Fprint(errW, newUsage)
+				ultraTree().find("new").help(errW)
 				return 2
 			}
 			name, rest = a, rest[1:]
 		}
 	}
 	if name == "" {
-		fmt.Fprint(errW, newUsage)
+		ultraTree().find("new").help(errW)
 		return 2
 	}
 	if module == "" {
@@ -356,6 +343,7 @@ func cmdNew(args []string, out, errW io.Writer) int {
 	// exists to end.
 	if err := d.fillDevSeed(); err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "new "+name, err.Error())
 		return 1
 	}
 	// --from is parsed BEFORE anything is written: a document that cannot be
@@ -364,6 +352,7 @@ func cmdNew(args []string, out, errW io.Writer) int {
 		plan, err := planFrom(from)
 		if err != nil {
 			fmt.Fprintln(errW, err)
+			failVerdict(errW, "new "+name, err.Error())
 			return 1
 		}
 		d.plan, d.Features = plan, plan.PkgNames()
@@ -371,6 +360,7 @@ func cmdNew(args []string, out, errW io.Writer) int {
 
 	if err := scaffold(name, d); err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "new "+name, err.Error())
 		return 1
 	}
 	fmt.Fprintf(out, "created %s/ (module %s, ultrastack %s%s)\n",
@@ -391,6 +381,7 @@ go mod tidy did not finish (%v). To resolve manually:
 (private repos need git auth: gh auth setup-git, or SSH; or uncomment the
 replace directives in go.mod to build against a local checkout)
 `, err, name, privateGlob)
+		failVerdict(errW, "new "+name, "scaffolded, but go mod tidy did not finish")
 		return 1
 	}
 
@@ -417,9 +408,12 @@ the secret to ULTRA_AUTH_JWT_SECRET, before this serves anyone but you.
 		// read: what came across, what was guessed, and what did not — with
 		// the paths that carry it.
 		fmt.Fprint(out, d.plan.report.String())
+		verdict(errW, "new "+name, fmt.Sprintf("scaffolded from %s — %s, %s",
+			filepath.Base(from), count(len(d.Features), "feature"), count(d.plan.report.Stubs, "stub")))
 		return 0
 	}
 	fmt.Fprint(out, "\nYour first feature:\n  ultra new feature <name>   # internal/app/<name>/<name>.go, then one line in app.Modules()\n")
+	verdict(errW, "new "+name, fmt.Sprintf("scaffolded %s (%s)", module, strings.TrimPrefix(capsSuffix(d), ", ")))
 	return 0
 }
 
@@ -447,21 +441,24 @@ func capsSuffix(d scaffoldData) string {
 // demands them, which is the doctrine's growth rule.
 func cmdNewFeature(args []string, out, errW io.Writer) int {
 	if len(args) != 1 {
-		fmt.Fprintln(errW, "usage: ultra new feature <name>   (run from the product root)")
+		ultraTree().find("new").find("feature").help(errW)
 		return 2
 	}
 	name := args[0]
 	if !pkgNameRe.MatchString(name) {
 		fmt.Fprintf(errW, "feature name %q must be a Go package name: lowercase letters and digits, starting with a letter\n", name)
+		failVerdict(errW, "new feature "+name, "not a Go package name")
 		return 1
 	}
 	if _, err := os.Stat("internal/app"); err != nil {
 		fmt.Fprintln(errW, "no internal/app directory here — run `ultra new feature` from the product root")
+		failVerdict(errW, "new feature "+name, "not a product root")
 		return 1
 	}
 	dir := filepath.Join("internal", "app", name)
 	if _, err := os.Stat(dir); err == nil {
 		fmt.Fprintf(errW, "%s already exists — refusing to overwrite\n", dir)
+		failVerdict(errW, "new feature "+name, dir+" already exists")
 		return 1
 	}
 	if err := renderAll(".", map[string]string{
@@ -469,8 +466,10 @@ func cmdNewFeature(args []string, out, errW io.Writer) int {
 		"feature_errors.go.tmpl": filepath.Join(dir, "errors.go"),
 	}, scaffoldData{Name: name}); err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "new feature "+name, err.Error())
 		return 1
 	}
 	fmt.Fprintf(out, "created %s/%s.go\n\nOne line left — in internal/app/app.go:\n\t%s.Use(),\n", dir, name, name)
+	verdict(errW, "new feature "+name, "created "+dir+" — one line left in app.go")
 	return 0
 }

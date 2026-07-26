@@ -108,8 +108,9 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 		case a == "--dry", a == "--dry-run":
 			dry = true
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(errW, "ultra upgrade: unknown flag %q\n", a)
-			fmt.Fprintln(errW, "usage: ultra upgrade [dir] [--to vX.Y.Z] [--all] [--dry]")
+			node := ultraTree().find("upgrade")
+			fmt.Fprintf(errW, "Error: unknown flag %q for %q\n\n", a, node.path())
+			node.help(errW)
 			return 2
 		default:
 			dir = a
@@ -131,6 +132,7 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 		fmt.Fprintf(errW, "ultra upgrade: no go.mod in %s — run it from inside a product module.\n"+
 			"a whole workspace at once is a fleet operation: ultra fleet bump <dir> --to vX.Y.Z\n",
 			displayDir(dir))
+		failVerdict(errW, "upgrade", "not a product module")
 		return 2
 	}
 	module := moduleNameOf(string(origMod))
@@ -138,6 +140,7 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 	if len(pins) == 0 {
 		fmt.Fprintf(errW, "ultra upgrade: %s does not require %s — nothing to upgrade\n",
 			gomodPath, frameworkModule)
+		failVerdict(errW, "upgrade", "this module does not require the framework")
 		return 1
 	}
 	replaces := modReplaces(string(origMod), upgradeModules)
@@ -148,6 +151,7 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 		if err != nil || to == "" {
 			fmt.Fprintf(errW, "ultra upgrade: could not resolve the latest %s release: %v\n"+
 				"pin it yourself: ultra upgrade --to vX.Y.Z\n", frameworkModule, err)
+			failVerdict(errW, "upgrade", "could not resolve the latest release")
 			return 1
 		}
 	}
@@ -202,11 +206,16 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 		fmt.Fprintf(out, "               go mod tidy · go build ./... · go test ./...\n")
 		if !behind {
 			fmt.Fprintf(out, "  already at %s — the pins would not move\n", to)
+			verdict(errW, "upgrade", "--dry: already at "+to+", the pins would not move")
+			return 0
 		}
+		verdict(errW, "upgrade", fmt.Sprintf("--dry: %s would move %s → %s, nothing written",
+			count(len(pins), "pin"), from, to))
 		return 0
 	}
 	if !behind && !all {
 		fmt.Fprintf(out, "\n  already at %s — nothing to do\n", to)
+		verdict(errW, "upgrade", "already at "+to+" — nothing to do")
 		return 0
 	}
 
@@ -227,6 +236,7 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 		restore()
 		fmt.Fprintf(errW, "\n%s: %s failed at %s — go.mod and go.sum restored to %s\n\n%s\n",
 			errCol.red("ultra upgrade"), step, to, from, headOf(output, 20))
+		failVerdict(errW, "upgrade", step+" failed at "+to+" — restored to "+from)
 		return 1
 	}
 
@@ -294,6 +304,7 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 		cmdSkillInstall([]string{dir}, out, errW)
 	}
 	fmt.Fprintf(out, "\n  nothing was committed — read the diff, then commit it yourself.\n")
+	verdict(errW, "upgrade", fmt.Sprintf("%s → %s, verified, nothing committed", from, to))
 	return 0
 }
 

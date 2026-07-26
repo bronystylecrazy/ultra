@@ -102,7 +102,9 @@ func fleetBump(args []string, out, errW io.Writer) int {
 		}
 	}
 	if to == "" {
-		fmt.Fprintln(errW, "usage: ultra fleet bump [dir] --to vX.Y.Z [--push] [--pr] [--full]")
+		fmt.Fprintln(errW, "Error: fleet bump needs a target version (--to vX.Y.Z)")
+		fmt.Fprintln(errW)
+		ultraTree().find("fleet").find("bump").help(errW)
 		return 2
 	}
 	target, ok := parseSemver(to)
@@ -117,6 +119,7 @@ func fleetBump(args []string, out, errW io.Writer) int {
 	repos := discoverFleet(root)
 	if len(repos) == 0 {
 		fmt.Fprintf(errW, "no ultrastack products under %s (looked for go.mod requiring %s)\n", root, frameworkModule)
+		failVerdict(errW, "fleet bump", "no products found under "+root)
 		return 1
 	}
 
@@ -130,22 +133,33 @@ func fleetBump(args []string, out, errW io.Writer) int {
 		enc.SetIndent("", "  ")
 		enc.Encode(results)
 	} else {
-		fmt.Fprintf(out, "%-32s %-16s %-12s %s\n", "PRODUCT", "STATUS", "FROM→TO", "DETAIL")
+		// tabwriter: DETAIL is a sentence and PRODUCT is a module path, so two
+		// of the four columns are unbounded. See table.go.
+		t := newTable(out)
+		t.row("PRODUCT", "STATUS", "FROM→TO", "DETAIL")
 		for _, r := range results {
 			span := r.From
 			if r.Status == "bumped" {
 				span = r.From + "→" + r.To
 			}
-			fmt.Fprintf(out, "%-32s %-16s %-12s %s\n", r.Module, r.Status, span, r.Detail)
+			t.row(r.Module, r.Status, span, r.Detail)
 		}
+		t.flush()
 	}
 
-	code := 0
+	code, bumped, failed := 0, 0, 0
 	for _, r := range results {
-		if r.Status == "FAILED" {
+		switch r.Status {
+		case "bumped":
+			bumped++
+		case "FAILED":
+			failed++
 			code = 1
 		}
 	}
+	verdictFor(errW, code == 0, "fleet bump",
+		fmt.Sprintf("%s bumped to %s, %d failed, %d skipped",
+			count(bumped, "product"), to, failed, len(results)-bumped-failed))
 	return code
 }
 

@@ -164,16 +164,27 @@ var presetDeps = []presetDep{
 	{"authpg", "migrate", `authpg contributes migrate.Files("authpg", …) — with no Runner its tables are never created`},
 }
 
-const contribUsage = `usage: ultra contrib list [dir]
-       ultra contrib add <preset> [dir] [--dry]
-       ultra contrib remove <preset> [dir] [--dry] [--force]
+// contribNode is the help tree's contrib subtree — the ONE place this
+// command's usage text lives, shared with `ultra contrib --help`.
+func contribNode(sub string) *command {
+	c := ultraTree().find("contrib")
+	if s := c.find(sub); s != nil {
+		return s
+	}
+	return c
+}
 
-Run it from a product root (the directory holding main.go).
-`
+// badFlag is the wrong-flag screen every contrib subcommand shows: cobra's
+// wording, then that subcommand's own help.
+func badFlag(errW io.Writer, node *command, flag string) int {
+	fmt.Fprintf(errW, "Error: unknown flag %q for %q\n\n", flag, node.path())
+	node.help(errW)
+	return 2
+}
 
 func cmdContrib(args []string, out, errW io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprint(errW, contribUsage)
+		contribNode("").help(errW)
 		return 2
 	}
 	switch args[0] {
@@ -184,7 +195,7 @@ func cmdContrib(args []string, out, errW io.Writer) int {
 	case "remove", "rm":
 		return contribRemove(args[1:], out, errW)
 	}
-	fmt.Fprintf(errW, "unknown contrib subcommand %q\n%s", args[0], contribUsage)
+	contribNode("").unknown(errW, args[0])
 	return 2
 }
 
@@ -194,8 +205,7 @@ func contribList(args []string, out, errW io.Writer) int {
 	dir := "."
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") {
-			fmt.Fprintf(errW, "unknown flag %q\n%s", a, contribUsage)
-			return 2
+			return badFlag(errW, contribNode("list"), a)
 		}
 		dir = a
 	}
@@ -203,6 +213,7 @@ func contribList(args []string, out, errW io.Writer) int {
 	wired, err := scanWired(dir)
 	if err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "contrib list", err.Error())
 		return 1
 	}
 
@@ -224,6 +235,10 @@ func contribList(args []string, out, errW io.Writer) int {
 	if len(names) == 0 {
 		fmt.Fprintln(out, "  (nothing — this product imports no contrib preset)")
 	}
+	// tabwriter, not %-54s: an entry spelling as long as
+	// api.Use(api.Info{Title: "…"}) used to shove the file:line column off the
+	// end of the row it belonged to.
+	t := newTable(out)
 	for _, name := range names {
 		w := wired[name]
 		spelling := w.Call
@@ -232,8 +247,9 @@ func contribList(args []string, out, errW io.Writer) int {
 			// shape of a DI0001 waiting at Validate, so say it plainly.
 			spelling = "(imported; no " + name + ".Use() — not registered)"
 		}
-		fmt.Fprintf(out, "  %-10s %-54s %s:%d\n", name, spelling, w.File, w.Line)
+		t.row("  "+name, spelling, fmt.Sprintf("%s:%d", w.File, w.Line))
 	}
+	t.flush()
 
 	var avail []preset
 	for _, p := range presets {
@@ -242,9 +258,12 @@ func contribList(args []string, out, errW io.Writer) int {
 		}
 	}
 	fmt.Fprintf(out, "\nAVAILABLE (%d) — ultra contrib add <preset>\n", len(avail))
+	t = newTable(out)
 	for _, p := range avail {
-		fmt.Fprintf(out, "  %-10s %s%s\n", p.Pkg, p.Doc, p.tags())
+		t.row("  "+p.Pkg, p.Doc+p.tags())
 	}
+	t.flush()
+	verdict(errW, "contrib list", fmt.Sprintf("%s wired, %d available", count(len(names), "preset"), len(avail)))
 	return 0
 }
 
@@ -360,19 +379,18 @@ func contribAdd(args []string, out, errW io.Writer) int {
 		case a == "--dry" || a == "-dry":
 			dry = true
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(errW, "unknown flag %q\n%s", a, contribUsage)
-			return 2
+			return badFlag(errW, contribNode("add"), a)
 		case name == "":
 			name = a
 		case dir == "":
 			dir = a
 		default:
-			fmt.Fprint(errW, contribUsage)
+			contribNode("add").help(errW)
 			return 2
 		}
 	}
 	if name == "" {
-		fmt.Fprint(errW, contribUsage)
+		contribNode("add").help(errW)
 		return 2
 	}
 	if dir == "" {
@@ -387,6 +405,7 @@ func contribAdd(args []string, out, errW io.Writer) int {
 	wired, err := scanWired(dir)
 	if err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "contrib add "+name, err.Error())
 		return 1
 	}
 
@@ -398,14 +417,17 @@ func contribAdd(args []string, out, errW io.Writer) int {
 			// the capability; without a readable root we cannot say where.
 			if w := wired[p.Pkg]; w != nil && w.Call != "" {
 				fmt.Fprintf(out, "%s is already wired — %s at %s:%d\n", p.Pkg, w.Call, w.File, w.Line)
+				verdict(errW, "contrib add "+p.Pkg, "already wired — nothing to do")
 				return 0
 			}
 			fmt.Fprintf(errW, "ultra contrib add %s: %v\n\n", p.Pkg, err)
 			fmt.Fprintf(errW, "The edit is one line, so do it by hand — add %s to your assembly\nand import %q.\n",
 				p.entry(productName(dir)), p.path())
+			failVerdict(errW, "contrib add "+p.Pkg, "refused: the root is not canonical")
 			return 1
 		}
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "contrib add "+p.Pkg, err.Error())
 		return 1
 	}
 
@@ -416,6 +438,7 @@ func contribAdd(args []string, out, errW io.Writer) int {
 	if have := root.presetArgs(p); len(have) > 0 {
 		fmt.Fprintf(out, "%s is already wired — %s at main.go:%d\n",
 			p.Pkg, oneLine(root.Fset, have[0]), root.Fset.Position(have[0].Pos()).Line)
+		verdict(errW, "contrib add "+p.Pkg, "already wired — nothing to do")
 		return 0
 	}
 
@@ -423,17 +446,20 @@ func contribAdd(args []string, out, errW io.Writer) int {
 	before, after, err := root.withPreset(p, entry)
 	if err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "contrib add "+p.Pkg, err.Error())
 		return 1
 	}
 
 	if dry {
 		fmt.Fprint(out, presetDiff(colorFor(out), root.File, "+ "+entry, before, after))
 		fmt.Fprintf(out, "\n--dry: nothing written.\n")
+		verdict(errW, "contrib add "+p.Pkg, "--dry: 1 edit planned, nothing written")
 		return 0
 	}
 
 	if err := os.WriteFile(root.File, after, 0o644); err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "contrib add "+p.Pkg, err.Error())
 		return 1
 	}
 	rel, _ := filepath.Rel(dir, root.File)
@@ -444,6 +470,7 @@ func contribAdd(args []string, out, errW io.Writer) int {
 		fmt.Fprint(out, "\n"+note)
 	}
 	fmt.Fprint(out, "\n"+nextSteps(p, wired))
+	verdict(errW, "contrib add "+p.Pkg, "wired into "+root.Kind+" ("+rel+")")
 	return 0
 }
 
@@ -560,19 +587,18 @@ func contribRemove(args []string, out, errW io.Writer) int {
 		case a == "--force" || a == "-force":
 			force = true
 		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(errW, "unknown flag %q\n%s", a, contribUsage)
-			return 2
+			return badFlag(errW, contribNode("remove"), a)
 		case name == "":
 			name = a
 		case dir == "":
 			dir = a
 		default:
-			fmt.Fprint(errW, contribUsage)
+			contribNode("remove").help(errW)
 			return 2
 		}
 	}
 	if name == "" {
-		fmt.Fprint(errW, contribUsage)
+		contribNode("remove").help(errW)
 		return 2
 	}
 	if dir == "" {
@@ -587,10 +613,12 @@ func contribRemove(args []string, out, errW io.Writer) int {
 	wired, err := scanWired(dir)
 	if err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "contrib remove "+name, err.Error())
 		return 1
 	}
 	if wired[p.Pkg] == nil {
 		fmt.Fprintf(out, "%s is not wired — nothing to remove\n", p.Pkg)
+		verdict(errW, "contrib remove "+p.Pkg, "not wired — nothing to remove")
 		return 0
 	}
 
@@ -600,9 +628,11 @@ func contribRemove(args []string, out, errW io.Writer) int {
 		if errors.As(err, &refusal) {
 			fmt.Fprintf(errW, "ultra contrib remove %s: %v\n\n", p.Pkg, err)
 			fmt.Fprintf(errW, "Remove it by hand: drop every %s.* argument from your assembly\nand the %q import.\n", p.Pkg, p.path())
+			failVerdict(errW, "contrib remove "+p.Pkg, "refused: the root is not canonical")
 			return 1
 		}
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "contrib remove "+p.Pkg, err.Error())
 		return 1
 	}
 
@@ -611,6 +641,7 @@ func contribRemove(args []string, out, errW io.Writer) int {
 		w := wired[p.Pkg]
 		fmt.Fprintf(errW, "%s is imported (%s:%d) but %s holds no %s.* argument — nothing this command can remove\n",
 			p.Pkg, w.File, w.Line, root.Kind, p.Pkg)
+		failVerdict(errW, "contrib remove "+p.Pkg, "imported, but the assembly holds no argument to drop")
 		return 1
 	}
 
@@ -633,8 +664,10 @@ func contribRemove(args []string, out, errW io.Writer) int {
 		switch {
 		case len(findings) > 0 && !force:
 			fmt.Fprintf(out, "\n--dry: the guard would REFUSE this removal — `--force` proceeds anyway.\n")
+			verdict(errW, "contrib remove "+p.Pkg, "--dry: the guard would refuse ("+count(len(findings), "finding")+")")
 		default:
 			fmt.Fprintf(out, "\n--dry: nothing written.\n")
+			verdict(errW, "contrib remove "+p.Pkg, "--dry: "+count(len(victims), "argument")+" would go, nothing written")
 		}
 		return 0
 	}
@@ -642,16 +675,19 @@ func contribRemove(args []string, out, errW io.Writer) int {
 		fmt.Fprintf(errW, "\nrefusing to remove %s: the findings above break when it goes.\n"+
 			"Fix them first, or `ultra contrib remove %s --force` to remove it anyway\n"+
 			"(the build runs afterwards and the edit is kept either way).\n", p.Pkg, p.Pkg)
+		failVerdict(errW, "contrib remove "+p.Pkg, "refused by the dependency guard ("+count(len(findings), "finding")+")")
 		return 1
 	}
 
 	before, after, err := root.withoutPreset(p, victims)
 	if err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "contrib remove "+p.Pkg, err.Error())
 		return 1
 	}
 	if err := os.WriteFile(root.File, after, 0o644); err != nil {
 		fmt.Fprintln(errW, err)
+		failVerdict(errW, "contrib remove "+p.Pkg, err.Error())
 		return 1
 	}
 	fmt.Fprint(out, presetDiff(colorFor(out), root.File, "- "+p.Pkg+".*", before, after))
@@ -673,6 +709,11 @@ func contribRemove(args []string, out, errW io.Writer) int {
 		}
 	}
 	fmt.Fprint(out, "\n"+removalSteps(p))
+	if code == 0 {
+		verdict(errW, "contrib remove "+p.Pkg, "unwired "+count(len(victims), "argument"))
+	} else {
+		failVerdict(errW, "contrib remove "+p.Pkg, "unwired, but go build failed — the edit is kept")
+	}
 	return code
 }
 

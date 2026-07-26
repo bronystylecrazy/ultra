@@ -12,9 +12,77 @@ import (
 // the kernel keeps zero dependencies; `ultra vet` is a thin delegator.
 const analyzerModule = "github.com/bronystylecrazy/ultrastack/analyzer/cmd/ultravet"
 
-// cmdVet runs the static analyzer over the current directory.
+// cmdVet runs the static analyzer over the current directory and ends with the
+// verdict line — the one thing a clean run used to leave out entirely. A clean
+// `ultra vet` printed NOTHING and exited 0, which is indistinguishable from a
+// vet that never ran; now it says so.
+//
+// The counts come from the analyzer's own trailer, sniffed out of the stream on
+// its way through (vetTail) rather than recomputed here — one report, one set
+// of numbers. The machine formats have no trailer, and their verdict says only
+// what is true without one.
 func cmdVet(args []string, out, errW io.Writer) int {
-	return runVet("", args, out, errW)
+	tail := &vetTail{w: out}
+	code, ran := runVetStatus("", args, tail, errW)
+	tail.close()
+	switch {
+	case !ran:
+		failVerdict(errW, "vet", "the analyzer could not run")
+	case code == 0:
+		verdict(errW, "vet", "no findings")
+	case tail.trailer != "":
+		failVerdict(errW, "vet", tail.trailer)
+	case code == 1:
+		failVerdict(errW, "vet", "findings reported")
+	default:
+		failVerdict(errW, "vet", fmt.Sprintf("the analyzer exited %d", code))
+	}
+	return code
+}
+
+// vetTail passes the analyzer's stdout through byte-for-byte — `ultra vet
+// --json | jq` must see exactly what the analyzer wrote — while remembering
+// its summary line. The rustc-style report ends with
+//
+//	ultravet: 3 findings (1 fixable — re-run with -fix to apply)
+//
+// and that sentence, minus its call to action, IS the verdict's detail.
+type vetTail struct {
+	w       io.Writer
+	line    []byte
+	trailer string
+}
+
+const vetTrailerPrefix = "ultravet: "
+
+func (t *vetTail) Write(p []byte) (int, error) {
+	n, err := t.w.Write(p)
+	for _, b := range p[:n] {
+		if b == '\n' {
+			t.take()
+			continue
+		}
+		t.line = append(t.line, b)
+	}
+	return n, err
+}
+
+// close flushes a final line the analyzer left unterminated.
+func (t *vetTail) close() { t.take() }
+
+func (t *vetTail) take() {
+	line := strings.TrimSpace(string(t.line))
+	t.line = t.line[:0]
+	rest, ok := strings.CutPrefix(line, vetTrailerPrefix)
+	if !ok {
+		return
+	}
+	// "(1 fixable — re-run with -fix to apply)" is advice, not a count; the
+	// advice already went past the reader on stdout.
+	if i := strings.Index(rest, " — re-run with"); i >= 0 {
+		rest = rest[:i] + ")"
+	}
+	t.trailer = rest
 }
 
 // runVet delegates to the analyzer: an installed ultravet binary if
@@ -27,6 +95,15 @@ func cmdVet(args []string, out, errW io.Writer) int {
 // module, exactly as `ultra vet` does. Exit codes are the analyzer's: 1 with
 // findings, 0 clean, 2 on a load error — every format, unchanged.
 func runVet(dir string, args []string, out, errW io.Writer) int {
+	code, _ := runVetStatus(dir, args, out, errW)
+	return code
+}
+
+// runVetStatus is runVet plus the one fact a verdict needs and an exit code
+// cannot carry: whether the analyzer ran at all. "Not installed and could not
+// be fetched" also exits 1, and reporting that as "findings" would be a lie
+// told by the tool about the code.
+func runVetStatus(dir string, args []string, out, errW io.Writer) (code int, ran bool) {
 	return runAnalyzer(dir, withPatterns(vetFlags(args)), out, errW)
 }
 
@@ -34,7 +111,7 @@ func runVet(dir string, args []string, out, errW io.Writer) int {
 // translation, no default patterns. runVet is the front door; this is the raw
 // one, for callers that must speak the analyzer's own protocol (the mcp tool's
 // `-json` fallback to the flat go/analysis driver on an older binary).
-func runAnalyzer(dir string, args []string, out, errW io.Writer) int {
+func runAnalyzer(dir string, args []string, out, errW io.Writer) (code int, ran bool) {
 	run := func(name string, argv ...string) int {
 		cmd := exec.Command(name, argv...)
 		cmd.Dir = dir
@@ -52,10 +129,10 @@ func runAnalyzer(dir string, args []string, out, errW io.Writer) int {
 	}
 
 	if path, err := exec.LookPath("ultravet"); err == nil {
-		return run(path, args...)
+		return run(path, args...), true
 	}
 	if code := run("go", append([]string{"run", analyzerModule + "@latest"}, args...)...); code >= 0 {
-		return code
+		return code, true
 	}
 	fmt.Fprintf(errW, `ultra vet: the analyzer is not installed and could not be fetched.
 
@@ -63,7 +140,7 @@ func runAnalyzer(dir string, args []string, out, errW io.Writer) int {
 
 then re-run: ultra vet ./...
 `, analyzerModule)
-	return 1
+	return 1, false
 }
 
 // vetFlags normalizes `ultra vet`'s output flags into the analyzer's own

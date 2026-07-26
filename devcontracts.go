@@ -73,8 +73,12 @@ func devRunProduct(dir, bin string, args ...string) (string, error) {
 // dev-infra is in the build — asking the binary is the only honest probe, and
 // it is re-asked after every build because the answer can change.
 //
-// The listing is "  %-20s %s", and nested command names contain spaces
-// ("infra compose"), so the name is everything before the first double space.
+// A listing row is indented and separated by at least two spaces, and nested
+// command names contain spaces ("infra compose"), so the name is everything
+// before the first double space. That holds for the cobra-shaped listing a
+// current product prints and for the flat "  %-20s %s" an older product still
+// prints — the probe must work against both, because the product on the bench
+// pins whatever framework version it pins.
 func devHasCommand(help, name string) bool {
 	for _, line := range strings.Split(help, "\n") {
 		if !strings.HasPrefix(line, "  ") {
@@ -182,10 +186,29 @@ func (d *devLoop) refreshContracts(bin string) string {
 		return "" // the binary cannot even list its toolbox; serve will say why
 	}
 
+	// has answers for the whole tree, not just its top level: a current
+	// product's root listing shows the PARENT ("infra"), so a nested verb is
+	// confirmed by asking that parent for its own listing. An older product
+	// lists every full name flat, and the first check already finds it.
+	has := func(name string) bool {
+		if devHasCommand(help, name) {
+			return true
+		}
+		parent, leaf, nested := strings.Cut(name, " ")
+		if !nested || !devHasCommand(help, parent) {
+			return false
+		}
+		sub, err := devRunProduct(d.root, bin, "help", parent)
+		if err != nil {
+			return false
+		}
+		return devHasCommand(sub, leaf) || devHasCommand(sub, name)
+	}
+
 	var changed []string
 	generated := false
 
-	if devHasCommand(help, "openapi") {
+	if has("openapi") {
 		generated = true
 		doc, err := devRunProduct(d.root, bin, "openapi")
 		if err != nil {
@@ -202,7 +225,7 @@ func (d *devLoop) refreshContracts(bin string) string {
 
 	// The typed client is refreshed only where the product already keeps one:
 	// ultra dev refreshes committed artifacts, it does not invent them.
-	if devHasCommand(help, "client") && isDir(filepath.Join(d.root, clientDir)) {
+	if has("client") && isDir(filepath.Join(d.root, clientDir)) {
 		generated = true
 		tmp, err := os.MkdirTemp("", "ultra-dev-client-")
 		if err != nil {
@@ -223,7 +246,7 @@ func (d *devLoop) refreshContracts(bin string) string {
 	// dependency in the wiring shows up in docker-compose.dev.yml on the same
 	// restart. The command lands with the dev-infra preset; a product without
 	// it simply has no such verb, and that is not an event worth a line.
-	if devHasCommand(help, "infra compose") {
+	if has("infra compose") {
 		devRunProduct(d.root, bin, "infra", "compose")
 	}
 

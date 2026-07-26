@@ -10,10 +10,11 @@
 package main
 
 import (
+	"cmp"
 {{- if .DB}}
 	"embed"
+{{- end}}
 
-{{end}}
 	"github.com/bronystylecrazy/ultrastack/cli"
 	"github.com/bronystylecrazy/ultrastack/contrib/api"
 {{- if .Auth}}
@@ -29,8 +30,16 @@ import (
 	"{{.Module}}/internal/app"
 )
 
-// version stamps the OpenAPI document and the generated client.
-const version = "0.1.0"
+// version is the ONE version string this product has. It stamps the OpenAPI
+// document, the generated client and `./app version`, and `task build` sets it
+// from git:
+//
+//	-ldflags "-X github.com/bronystylecrazy/ultrastack/cli.AppVersion=$(git describe …)"
+//
+// An unstamped build (`go run .`, `task dev:api`) falls back to the literal —
+// so there is never a release where the binary and the document disagree
+// because someone edited one constant and not the other.
+var version = cmp.Or(cli.AppVersion, "0.1.0")
 {{if .DB}}
 // Persistence is central: ONE migration line for the whole product, never a
 // per-feature directory. Add 00002_*.sql beside it as the schema grows.
