@@ -57,6 +57,31 @@ func ultraTree() *command {
 		short: "the ultrastack companion",
 		subs: []*command{
 			{
+				name:  "brief",
+				args:  "[dir] [--json] [--check] [--drift]",
+				short: "the orientation pack: one product, one page",
+				long: `Everything an agent needs before it touches a product, in one page.
+
+Name and module, the framework pin, the canonical root, the wired presets
+with the entry spelling each used, the operation table from openapi.json,
+the config sections and which wiring reads each, the state of the
+committed artifacts, and the last commits that moved the contract.
+
+It replaces the five commands that answer those separately, and it is
+built for a context window: compact, grep-friendly, --json for the whole
+table when the human render caps it.
+
+Everything is a static read of files on disk. The two answers that cost
+something are opt-in, and their absence is stated rather than guessed:
+--check resolves the latest release (network), --drift regenerates the
+contract to compare it (a product build).`,
+				flags: []flagDoc{
+					{"--json", "the whole pack as one JSON document"},
+					{"--check", "also resolve the latest release (needs the network)"},
+					{"--drift", "also regenerate openapi.json and compare"},
+				},
+			},
+			{
 				name:  "codes",
 				short: "list every diagnostic code with its summary",
 				long: `List every diagnostic code this binary knows, one line each.
@@ -239,8 +264,10 @@ looks like today; it recommends nothing.`,
 
   claude mcp add ultrastack -- ultra mcp
 
-The tools are the same answers this CLI gives — explain, codes, vet,
-graph, blast — so an agent and a human read one registry.`,
+The tools are the same answers this CLI gives — brief, explain, codes,
+vet, graph, blast, diff, fleet_status, report — so an agent and a human
+read one registry. Every tool calls the command's own core; none of them
+is a second implementation.`,
 			},
 			{
 				name:  "new",
@@ -285,6 +312,47 @@ exporting Use(), plus its errors.go.
 Manifest files (handler.go, service.go, types.go) are NOT scaffolded —
 they appear when content demands them, which is the doctrine's growth
 rule. Run it from the product root; one line in app.go finishes the job.`,
+					},
+				},
+			},
+			{
+				name:  "report",
+				args:  "<kind> [--code X] [--pkg Y] <message...>",
+				short: "file a field report where the fleet can read it",
+				long: `File a field report: friction, bug, docs or idea.
+
+Product work turns up framework problems constantly — an error that did
+not name the consumer, a preset that refused a valid config, a doctrine
+page that lied. Those findings are written today and lost today, because
+there is nowhere they all land.
+
+This is that place, and it is a FILE: one JSON line appended to
+.ultra-reports.jsonl at the fleet root (walking up for .ultra-fleet.json;
+the product root when there is no fleet, and the verdict says which). No
+network, no server, no daemon — a human reads it and deletes what they
+have acted on.
+
+Product, framework version, directory and time are stamped for you; the
+message is the only thing worth typing.`,
+				flags: []flagDoc{
+					{"--code DI0001", "the diagnostic code the finding is about"},
+					{"--pkg contrib/pg", "the package the finding is about"},
+				},
+				subs: []*command{
+					{
+						name:  "list",
+						args:  "[--kind K] [--since 14d] [--json]",
+						short: "the inbox as a table, newest first",
+						long: `Read the inbox: one row per report, newest first.
+
+--since takes a Go duration (72h), a day count (14d), or a date
+(2026-07-01). It reads the same file ` + "`ultra report`" + ` writes, found the
+same way, so the two cannot disagree about where the inbox is.`,
+						flags: []flagDoc{
+							{"--kind friction", "only this kind (friction|bug|docs|idea)"},
+							{"--since 14d", "only reports newer than this"},
+							{"--json", "the inbox as one JSON array"},
+						},
 					},
 				},
 			},

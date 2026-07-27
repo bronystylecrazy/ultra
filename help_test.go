@@ -19,6 +19,7 @@ Usage:
   ultra [command]
 
 Available Commands:
+  brief     the orientation pack: one product, one page
   codes     list every diagnostic code with its summary
   contrib   this product's capabilities: list, add, remove
   dev       the inner loop in one terminal
@@ -28,6 +29,7 @@ Available Commands:
   help      help about any command
   mcp       Model Context Protocol server over stdio
   new       scaffold a product, or a feature inside one
+  report    file a field report where the fleet can read it
   skill     the vendored doctrine: generate and install
   upgrade   move THIS product onto a framework release
   version   print the ultra, build and Go versions

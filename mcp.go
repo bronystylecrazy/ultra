@@ -2,8 +2,9 @@ package main
 
 // `ultra mcp` is the framework's graph intelligence as a Model Context
 // Protocol server, so LLM agents (Claude Code, etc.) call the same tools a
-// developer runs: explain a diagnostic, list the codes, vet a package,
-// dump a product's graph/blast, diff two graphs, walk a fleet.
+// developer runs: brief a product, explain a diagnostic, list the codes, vet
+// a package, dump a product's graph/blast, diff two graphs, walk a fleet, and
+// file a field report.
 //
 //	claude mcp add ultrastack -- ultra mcp
 //
@@ -191,6 +192,26 @@ var mcpTools = []map[string]any{
 		}, "old", "new"),
 	},
 	{
+		"name":        "brief",
+		"description": "Returns the orientation pack for one product — module, framework pin, canonical root, wired presets, the operation table from openapi.json, config sections and what binds each, artifact state, recent contract commits. Call it FIRST when you land in an unfamiliar product; it replaces five separate reads.",
+		"inputSchema": objSchema(map[string]any{
+			"dir":   strProp("Path to the product root (the directory holding go.mod)."),
+			"check": map[string]any{"type": "boolean", "description": "Also resolve the latest framework release (needs the network)."},
+			"drift": map[string]any{"type": "boolean", "description": "Also regenerate openapi.json and report whether the committed one is stale (builds the product)."},
+		}, "dir"),
+	},
+	{
+		"name":        "report",
+		"description": "Files a field report (friction|bug|docs|idea) as one JSON line in .ultra-reports.jsonl at the fleet root, stamped with product, framework version, path and time. Use it when framework friction blocks or slows the work — a human triages the file.",
+		"inputSchema": objSchema(map[string]any{
+			"kind":    strProp("One of friction, bug, docs, idea."),
+			"message": strProp("What happened, in one or two sentences."),
+			"code":    strProp("Optional diagnostic code the finding is about, e.g. \"DI0001\"."),
+			"pkg":     strProp("Optional package the finding is about, e.g. \"contrib/pg\"."),
+			"dir":     strProp("Optional product directory the report is filed from; defaults to the server's cwd."),
+		}, "kind", "message"),
+	},
+	{
 		"name":        "fleet_status",
 		"description": "Walks a workspace of ultrastack products and returns per-product status as JSON (framework version, graph fingerprint, component count, drift vs the saved baseline). Use it for a fleet-wide view of versions and drift.",
 		"inputSchema": objSchema(map[string]any{
@@ -208,6 +229,8 @@ var mcpDispatch = map[string]func(json.RawMessage) (string, error){
 	"graph":        toolGraph,
 	"blast":        toolBlast,
 	"diff":         toolDiff,
+	"brief":        toolBrief,
+	"report":       toolReport,
 	"fleet_status": toolFleetStatus,
 }
 
@@ -317,6 +340,31 @@ func toolDiff(raw json.RawMessage) (string, error) {
 	}
 	report, _, _ := diffGraphs(string(oldB), string(newB))
 	return report, nil
+}
+
+func toolBrief(raw json.RawMessage) (string, error) {
+	var a struct {
+		Dir   string `json:"dir"`
+		Check bool   `json:"check"`
+		Drift bool   `json:"drift"`
+	}
+	json.Unmarshal(raw, &a)
+	if a.Dir == "" {
+		return "", fmt.Errorf("brief: dir is required")
+	}
+	return briefText(a.Dir, a.Check, a.Drift)
+}
+
+func toolReport(raw json.RawMessage) (string, error) {
+	var a struct {
+		Kind    string `json:"kind"`
+		Message string `json:"message"`
+		Code    string `json:"code"`
+		Pkg     string `json:"pkg"`
+		Dir     string `json:"dir"`
+	}
+	json.Unmarshal(raw, &a)
+	return fileReport(a.Kind, a.Message, a.Code, a.Pkg, a.Dir)
 }
 
 func toolFleetStatus(raw json.RawMessage) (string, error) {

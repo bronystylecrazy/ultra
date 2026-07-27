@@ -222,7 +222,7 @@ func firstLineOf(s string) string {
 }
 
 func fleetStatus(repos []fleetProduct, root string, save, jsonOut bool, out, errW io.Writer) int {
-	statePath := filepath.Join(root, ".ultra-fleet.json")
+	statePath := filepath.Join(root, fleetMarker)
 	baseline := map[string]string{}
 	if data, err := os.ReadFile(statePath); err == nil {
 		json.Unmarshal(data, &baseline)

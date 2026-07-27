@@ -95,7 +95,7 @@ func TestMCPConversation(t *testing.T) {
 	// notifications/initialized — accepted, no response.
 	c.notify("notifications/initialized", map[string]any{})
 
-	// tools/list → all seven tools, each with an inputSchema.
+	// tools/list → all nine tools, each with an inputSchema.
 	list := c.request("tools/list", map[string]any{})
 	var lr struct {
 		Tools []struct {
@@ -113,13 +113,13 @@ func TestMCPConversation(t *testing.T) {
 		}
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"explain", "codes", "vet", "graph", "blast", "diff", "fleet_status"} {
+	for _, want := range []string{"explain", "codes", "vet", "graph", "blast", "diff", "brief", "report", "fleet_status"} {
 		if !got[want] {
 			t.Errorf("tools/list missing %q", want)
 		}
 	}
-	if len(lr.Tools) != 7 {
-		t.Fatalf("want 7 tools, got %d", len(lr.Tools))
+	if len(lr.Tools) != 9 {
+		t.Fatalf("want 9 tools, got %d", len(lr.Tools))
 	}
 
 	// tools/call explain → the DI0001 lesson comes back as text.
@@ -300,6 +300,8 @@ func TestMCPToolValidation(t *testing.T) {
 		{"vet", toolVet},
 		{"graph", toolGraph},
 		{"blast", toolBlast},
+		{"brief", toolBrief},
+		{"report", toolReport},
 		{"fleet_status", toolFleetStatus},
 	}
 	for _, tc := range cases {
@@ -310,4 +312,47 @@ func TestMCPToolValidation(t *testing.T) {
 	if _, err := toolDiff(json.RawMessage(`{"old":"x"}`)); err == nil {
 		t.Error("diff: missing new must error")
 	}
+	// The kind set is closed on the tool side too, or the inbox an agent fills
+	// is a tag soup the CLI would have refused.
+	if _, err := toolReport(json.RawMessage(`{"kind":"grumble","message":"x"}`)); err == nil {
+		t.Error("report: an unknown kind must error")
+	}
+}
+
+// The two new tools go through the SAME cores the CLI does — brief renders the
+// developer's page, report writes the developer's line.
+func TestMCPBriefAndReportTools(t *testing.T) {
+	dir := briefFixture(t)
+	text, err := toolBrief(json.RawMessage(`{"dir":` + quoted(dir) + `}`))
+	if err != nil {
+		t.Fatalf("brief tool: %v", err)
+	}
+	for _, want := range []string{"shop — example.com/shop", "WIRED (4)", "OPERATIONS (3)", "CONFIG (4)"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("brief tool missing %q:\n%s", want, text)
+		}
+	}
+
+	t.Chdir(dir)
+	text, err = toolReport(json.RawMessage(`{"kind":"docs","message":"the preset page still shows Product()","pkg":"contrib/pg"}`))
+	if err != nil {
+		t.Fatalf("report tool: %v", err)
+	}
+	if !strings.Contains(text, "product root") || !strings.Contains(text, reportFile) {
+		t.Errorf("report tool must name where it filed: %q", text)
+	}
+	entries, err := readReports(filepath.Join(dir, reportFile))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries = %+v (%v)", entries, err)
+	}
+	if entries[0].Kind != "docs" || entries[0].Pkg != "contrib/pg" || entries[0].Product != "example.com/shop" {
+		t.Errorf("entry = %+v", entries[0])
+	}
+}
+
+// quoted is a JSON string literal for the hand-built argument objects above —
+// a Windows path is full of backslashes, and %q is not JSON.
+func quoted(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

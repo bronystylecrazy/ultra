@@ -1,8 +1,10 @@
 // ultra is the ultrastack companion CLI.
 //
 //	ultra --help                  the command tree
+//	ultra brief                   # the orientation pack for one product
 //	ultra explain DI0101          # the mini-lesson behind any diagnostic code
 //	ultra codes                   # list every code
+//	ultra report friction "..."   # file a field report at the fleet root
 //	ultra diff old.graph new.graph  # semantic diff of two GraphSummary files
 //
 // Graph files come from the app itself: write app.GraphSummary() to a file
@@ -90,6 +92,12 @@ func run(args []string, out, errW io.Writer) int {
 	switch node.name {
 	case "explain":
 		return cmdExplain(rest, out, errW)
+
+	case "brief":
+		return cmdBrief(rest, out, errW)
+
+	case "report":
+		return cmdReport(rest, out, errW)
 
 	case "codes":
 		text := codesText()
