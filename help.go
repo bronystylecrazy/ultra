@@ -313,6 +313,36 @@ Manifest files (handler.go, service.go, types.go) are NOT scaffolded —
 they appear when content demands them, which is the doctrine's growth
 rule. Run it from the product root; one line in app.go finishes the job.`,
 					},
+					{
+						name:  "table",
+						args:  `<name> "<columns>" [flags] [dir]`,
+						short: "migration + queries + store, then sqlc generate",
+						long: `Write the whole persistence slice for one table, in one command.
+
+The migration (next goose number, id + your columns + created_at with NO
+default — law 11 puts the row's time in di.Clock), the five canonical
+queries (create, get, keyset list, update, delete :execrows), and a Store
+skeleton in the feature. Then it runs sqlc generate, and the ultra sqlc
+plugin adds the typed half: <Table>Error with a sentinel per unique
+constraint, <Table>Cursor + List<Table>Page, and a row factory for tests.
+
+The SQL is YOURS from the moment it lands — this command never runs over
+it again. Only internal/db/gen regenerates.
+
+--owned adds a subject column and threads ownership through the index and
+every WHERE, so a caller can never read or delete another subject's rows.
+--migration folds the DDL into an EXISTING migration instead of adding
+one, which is how a parent and its child reach production together.
+
+It refuses on a module that does not build, and on a table name any
+migration or query file already mentions — naming the file.`,
+						flags: []flagDoc{
+							{"--owned", "every row belongs to a subject; ownership in every WHERE"},
+							{"--feature <pkg>", "put the store in this existing feature (default: the table's name)"},
+							{"--migration <n>", "append the DDL to migration n instead of adding one"},
+							{"--no-store", "SQL only — write no Go"},
+						},
+					},
 				},
 			},
 			{

@@ -38,6 +38,15 @@ task e2e          the golden path in a real browser against the built binary
 {{- end}}
 go run . <cmd>    the binary is the toolbox: routes, graph, doctor, codes,
                   config init, config reference, infra compose, openapi{{if .Web}}, client{{end}}
+{{- if .DB}}
+ultra new table <name> "<cols>" [--owned]
+                  the whole persistence slice: migration (created_at with NO
+                  default), the five queries, a Store, then sqlc generate
+cd internal/db && sqlc generate
+                  after ANY edit to queries/*.sql — `ultra` is the sqlc plugin
+                  that re-derives gen.DB, the error sentinels, the keyset page
+                  wrapper and gen/factory. The SQL is yours; only gen/ is not
+{{- end}}
 ```
 
 A dev build serves **no frontend** by design — a 404 at `/` means you wanted

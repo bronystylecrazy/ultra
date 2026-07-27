@@ -1,0 +1,45 @@
+-- {{.Table}} — scaffolded once, then YOURS. Nothing regenerates this file:
+-- edit it, add queries, change the shapes. `sqlc generate` READS it and writes
+-- internal/db/gen; it never writes back here.
+--
+-- Keep List{{.Export}} keyset-shaped and the ultra sqlc plugin keeps generating
+-- the {{.Export}}Cursor / List{{.Export}}Page pair for it: a :many with a
+-- (timestamptz, uuid) narg tuple compared against the ORDER BY, plus a limit.
+-- Break the shape and the wrapper stops appearing.
+
+-- name: Create{{.Model}} :one
+insert into {{.Table}} ({{.InsertCol}})
+values ({{.InsertVal}})
+returning *;
+
+-- name: Get{{.Model}} :one
+select * from {{.Table}} where {{.UpdateID}};
+
+-- name: List{{.Export}} :many
+select * from {{.Table}}
+{{- if .Owned}}
+where subject = $1
+  and (sqlc.narg('after_at')::timestamptz is null
+       or (created_at, id) < (sqlc.narg('after_at')::timestamptz, sqlc.narg('after_id')::uuid))
+{{- else}}
+where (sqlc.narg('after_at')::timestamptz is null
+       or (created_at, id) < (sqlc.narg('after_at')::timestamptz, sqlc.narg('after_id')::uuid))
+{{- end}}
+order by created_at desc, id desc
+limit {{if .Owned}}$2{{else}}$1{{end}};
+
+-- name: Update{{.Model}} :one
+update {{.Table}} set {{.UpdateSet}}
+where {{.UpdateID}}
+returning *;
+
+-- name: Delete{{.Model}} :execrows
+{{- if .Owned}}
+-- execrows, not exec: 0 rows means "no such row, OR not this subject's" — the
+-- ownership check and the existence check are the same WHERE, so a caller can
+-- never probe for rows it does not own.
+{{- else}}
+-- execrows, not exec: 0 rows is how the store tells "already gone" from
+-- "failed", and exec throws that away.
+{{- end}}
+delete from {{.Table}} where {{.UpdateID}};

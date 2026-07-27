@@ -1,0 +1,15 @@
+-- created_at carries NO default, deliberately (law 11): the row's time comes
+-- from di.Clock in the store, so one request shares one instant and a test can
+-- freeze it. A `default now()` here would silently outrank the app's clock.
+create table {{.Table}} (
+    id uuid primary key default gen_random_uuid(),
+{{- if .Owned}}
+    subject text not null,
+{{- end}}
+{{.ColsSQL}}
+    created_at timestamptz not null
+);
+
+-- The keyset index IS the page order, so a cursor read is a range scan and
+-- never a sort. Change one and change the other.
+create index {{.Table}}_page_idx on {{.Table}} ({{.IndexCols}});

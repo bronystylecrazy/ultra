@@ -26,6 +26,13 @@ import (
 )
 
 func main() {
+	// sqlc's process plugins are exec'd, not typed: SQLC_VERSION in the
+	// environment and a piped stdin mean the first argument is
+	// "/plugin.CodegenService/Generate", not a command. Answer the protobuf
+	// and exit before any of the argument parsing below sees it.
+	if pluginMode(os.Stdin) {
+		os.Exit(runPlugin(os.Stdin, os.Stdout, os.Stderr))
+	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 

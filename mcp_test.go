@@ -118,8 +118,8 @@ func TestMCPConversation(t *testing.T) {
 			t.Errorf("tools/list missing %q", want)
 		}
 	}
-	if len(lr.Tools) != 9 {
-		t.Fatalf("want 9 tools, got %d", len(lr.Tools))
+	if len(lr.Tools) != 10 {
+		t.Fatalf("want 10 tools, got %d", len(lr.Tools))
 	}
 
 	// tools/call explain → the DI0001 lesson comes back as text.

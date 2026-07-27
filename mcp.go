@@ -212,6 +212,19 @@ var mcpTools = []map[string]any{
 		}, "kind", "message"),
 	},
 	{
+		"name":        "new_table",
+		"description": "Writes the whole persistence slice for one table in an ultrastack product: the goose migration (id + your columns + created_at with NO default — the clock is di.Clock), the five canonical queries (create, get, keyset list, update, delete :execrows), and a Store skeleton in the feature; then runs sqlc generate, whose ultra plugin adds the typed error classifier, the keyset page wrapper and a row factory. Refuses on a module that does not build and on a table any migration already defines. The SQL it writes is yours to edit — it is never regenerated.",
+		"inputSchema": objSchema(map[string]any{
+			"dir":       strProp("Path to the product root (the directory holding go.mod)."),
+			"name":      strProp("The table name, e.g. \"notes\" — lowercase, underscores allowed."),
+			"columns":   strProp("The columns as SQL, comma separated, e.g. \"title text not null, body text\". Do NOT include id, created_at or subject."),
+			"owned":     map[string]any{"type": "boolean", "description": "Add a subject column and thread ownership through the index and every WHERE."},
+			"feature":   strProp("Put the store in this EXISTING feature package; defaults to a feature named after the table."),
+			"migration": strProp("Append the DDL to this existing migration (number or filename) instead of adding one."),
+			"no_store":  map[string]any{"type": "boolean", "description": "Write the SQL only — no Go."},
+		}, "dir", "name", "columns"),
+	},
+	{
 		"name":        "fleet_status",
 		"description": "Walks a workspace of ultrastack products and returns per-product status as JSON (framework version, graph fingerprint, component count, drift vs the saved baseline). Use it for a fleet-wide view of versions and drift.",
 		"inputSchema": objSchema(map[string]any{
@@ -231,6 +244,7 @@ var mcpDispatch = map[string]func(json.RawMessage) (string, error){
 	"diff":         toolDiff,
 	"brief":        toolBrief,
 	"report":       toolReport,
+	"new_table":    toolNewTable,
 	"fleet_status": toolFleetStatus,
 }
 
@@ -365,6 +379,43 @@ func toolReport(raw json.RawMessage) (string, error) {
 	}
 	json.Unmarshal(raw, &a)
 	return fileReport(a.Kind, a.Message, a.Code, a.Pkg, a.Dir)
+}
+
+// toolNewTable drives cmdNewTable itself rather than reimplementing it, so
+// the agent gets the same refusals, the same files and the same verdict a
+// developer sees — including the build gate.
+func toolNewTable(raw json.RawMessage) (string, error) {
+	var a struct {
+		Dir       string `json:"dir"`
+		Name      string `json:"name"`
+		Columns   string `json:"columns"`
+		Owned     bool   `json:"owned"`
+		Feature   string `json:"feature"`
+		Migration string `json:"migration"`
+		NoStore   bool   `json:"no_store"`
+	}
+	json.Unmarshal(raw, &a)
+	if a.Dir == "" || a.Name == "" || a.Columns == "" {
+		return "", fmt.Errorf("new_table: dir, name and columns are required")
+	}
+	args := []string{a.Name, a.Columns}
+	if a.Owned {
+		args = append(args, "--owned")
+	}
+	if a.Feature != "" {
+		args = append(args, "--feature", a.Feature)
+	}
+	if a.Migration != "" {
+		args = append(args, "--migration", a.Migration)
+	}
+	if a.NoStore {
+		args = append(args, "--no-store")
+	}
+	var out, errW strings.Builder
+	if code := cmdNewTable(append(args, a.Dir), &out, &errW); code != 0 {
+		return "", fmt.Errorf("%s%s", out.String(), errW.String())
+	}
+	return out.String() + errW.String(), nil
 }
 
 func toolFleetStatus(raw json.RawMessage) (string, error) {

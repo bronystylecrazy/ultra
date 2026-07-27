@@ -1,0 +1,55 @@
+package {{.Feature}}
+
+import (
+	"context"
+
+	"{{.GenImport}}"
+	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/ultrastack/di/diag"
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+// Store is this feature's whole reach into Postgres: the generated querier and
+// the clock that stamps rows. It holds no connection and grows no third field
+// — everything else a caller needs is another query.
+type Store struct {
+	db    *gen.DB
+	clock di.Clock
+}
+
+func NewStore(db *gen.DB, clock di.Clock) *Store { return &Store{db: db, clock: clock} }
+
+// Create stamps created_at from the injected clock — law 11, and the reason
+// the migration declares no default. Whatever the caller put there loses.
+func (s *Store) Create(ctx context.Context, arg gen.Create{{.Model}}Params) (gen.{{.Model}}, error) {
+	arg.CreatedAt = pgtype.Timestamptz{Time: s.clock.Now(), Valid: true}
+	row, err := s.db.Q().Create{{.Model}}(ctx, arg)
+	if err != nil {
+		// Facts a CALLER named — that is diag.Wrap's redaction model, and it
+		// is why generated wrappers attach only shapes while this one, which
+		// knows what the values mean, can attach the subject.
+		return gen.{{.Model}}{}, diag.Wrap(gen.{{.Export}}Error(err), "creating {{.Singular}}"{{if .Owned}}, "subject", arg.Subject{{end}})
+	}
+	return row, nil
+}
+
+// Page returns one keyset page and whether more rows follow. The cursor is the
+// last row's ordering tuple, so a row inserted meanwhile shifts nothing.
+func (s *Store) Page(ctx context.Context, {{if .Owned}}subject string, {{end}}after *gen.{{.Export}}Cursor, size int) ([]gen.{{.Model}}, bool, error) {
+	return s.db.Q().List{{.Export}}Page(ctx, {{if .Owned}}subject, {{end}}after, size)
+}
+
+// Remove reports ErrNotFound rather than succeeding silently: 0 rows affected
+// is "no such row{{if .Owned}}, or not this subject's{{end}}", and a client that cannot tell
+// deletion from a typo will write the bug twice.
+func (s *Store) Remove(ctx context.Context, id pgtype.UUID{{if .Owned}}, subject string{{end}}) error {
+	{{/* sqlc passes a lone parameter directly and only builds a Params struct for two or more. */ -}}
+	n, err := s.db.Q().Delete{{.Model}}(ctx, {{if .Owned}}gen.Delete{{.Model}}Params{ID: id, Subject: subject}{{else}}id{{end}})
+	if err != nil {
+		return diag.Wrap(gen.{{.Export}}Error(err), "removing {{.Singular}}"{{if .Owned}}, "subject", subject{{end}})
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

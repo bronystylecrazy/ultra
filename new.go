@@ -256,15 +256,11 @@ func renderFeatures(dir string, d scaffoldData) error {
 // error here rather than a broken scaffold.
 func renderAll(dir string, files map[string]string, data any) error {
 	for tmpl, out := range files {
-		t, err := template.ParseFS(templates, "templates/"+tmpl)
+		rendered, err := renderTemplate(tmpl, data)
 		if err != nil {
-			return fmt.Errorf("template %s: %w", tmpl, err)
+			return err
 		}
-		var buf bytes.Buffer
-		if err := t.Execute(&buf, data); err != nil {
-			return fmt.Errorf("render %s: %w", out, err)
-		}
-		body := buf.Bytes()
+		body := []byte(rendered)
 		if strings.HasSuffix(out, ".go") {
 			formatted, err := format.Source(body)
 			if err != nil {
@@ -281,6 +277,21 @@ func renderAll(dir string, files map[string]string, data any) error {
 		}
 	}
 	return nil
+}
+
+// renderTemplate executes one embedded template against data. Separate from
+// renderAll because `ultra new table` folds a rendered fragment into a file
+// that already exists rather than writing a new one.
+func renderTemplate(tmpl string, data any) (string, error) {
+	t, err := template.ParseFS(templates, "templates/"+tmpl)
+	if err != nil {
+		return "", fmt.Errorf("template %s: %w", tmpl, err)
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("render %s: %w", tmpl, err)
+	}
+	return buf.String(), nil
 }
 
 // releaseTagRe matches a plain release version and nothing else — not
@@ -306,6 +317,9 @@ func resolveVersion(flag string) string {
 func cmdNew(args []string, out, errW io.Writer) int {
 	if len(args) > 0 && args[0] == "feature" {
 		return cmdNewFeature(args[1:], out, errW)
+	}
+	if len(args) > 0 && args[0] == "table" {
+		return cmdNewTable(args[1:], out, errW)
 	}
 
 	var name, module, version, from string
