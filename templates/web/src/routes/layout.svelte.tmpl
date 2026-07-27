@@ -5,11 +5,16 @@
 {{- if eq .DS "connected"}}
 	import { Toaster } from '@connected/svelte-connected-design/toast';
 {{- end}}
+	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
 	import '../app.css';
 
 	let { children } = $props();
+	// The generated client's queries need this mounted; one per app.
+	const queryClient = new QueryClient();
 </script>
-{{if eq .DS "connected"}}
-<Toaster />
-{{end}}
-{@render children()}
+<QueryClientProvider client={queryClient}>
+{{- if eq .DS "connected"}}
+	<Toaster />
+{{- end}}
+	{@render children()}
+</QueryClientProvider>
