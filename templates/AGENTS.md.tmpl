@@ -72,6 +72,10 @@ A dev build serves **no frontend** by design — a 404 at `/` means you wanted
   (label, description, errors, a11y wiring). Bare controls are for toolbars and
   search boxes. The UI doctrine — the design system, its traps, and `Field`
   composition — is `references/ui.md` in the vendored skill below.
+- **A screen built from a Figma frame resolves every instance through the design
+  system's `code-connect.map.json`** — never hand-rolled markup for a component
+  that exists, and a `TODO(figma)` naming any node that does not resolve. The
+  workflow is `references/figma-product.md`.
 {{- end}}
 - **A bug fix lands with the test that would have caught it**; a feature lands
   with one test of its central claim.
