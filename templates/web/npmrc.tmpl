@@ -1,0 +1,4 @@
+; NOTE: the trailing slash on the registry URL is REQUIRED for bun.
+; Without it bun mis-joins the scope path and depot returns an HTML page,
+; which surfaces as: "Unsupported syntax: Operators are not allowed in JSON".
+@connected:registry=https://depot.connectedtech.dev/npm/

@@ -19,13 +19,15 @@ var combos = []struct {
 	args []string
 	data scaffoldData
 }{
-	{"default", nil, scaffoldData{DB: true, Web: true, Auth: true}},
+	{"default", nil, scaffoldData{DB: true, Web: true, Auth: true, DS: dsConnected}},
 	{"bare", []string{"--bare"}, scaffoldData{}},
 	{"bare+db", []string{"--bare", "--db"}, scaffoldData{DB: true}},
 	// The combination whose boot smoke actually RUNS: no database to dial,
 	// so Start happens for real and the auth-guards-ops assertion is proven
-	// rather than skipped.
-	{"bare+web+auth", []string{"--bare", "--web", "--auth"}, scaffoldData{Web: true, Auth: true}},
+	// rather than skipped. It also carries the --ds bare frontend, so the two
+	// web legs cover one design system each.
+	{"bare+web+auth", []string{"--bare", "--web", "--auth", "--ds", "bare"},
+		scaffoldData{Web: true, Auth: true, DS: dsBare}},
 }
 
 func testData(name string, d scaffoldData) scaffoldData {
@@ -59,9 +61,10 @@ func TestFlagsShapeTheTree(t *testing.T) {
 	web := []string{
 		"spa.go", "spa_embed.go",
 		"web/.gitignore", "web/e2e/golden.spec.ts", "web/package.json",
-		"web/playwright.config.ts", "web/src/app.html",
+		"web/playwright.config.ts", "web/src/app.css", "web/src/app.html",
 		"web/src/lib/api/.gitkeep", "web/src/lib/api/vite.proxy.json",
-		"web/src/routes/+layout.ts", "web/src/routes/+page.svelte",
+		"web/src/routes/+layout.svelte", "web/src/routes/+layout.ts",
+		"web/src/routes/+page.svelte",
 		"web/svelte.config.js", "web/tsconfig.json", "web/vite.config.ts",
 	}
 	db := []string{
@@ -80,6 +83,9 @@ func TestFlagsShapeTheTree(t *testing.T) {
 			want := append([]string{}, core...)
 			if d.Web {
 				want = append(want, web...)
+			}
+			if d.DS == dsConnected {
+				want = append(want, "web/.npmrc")
 			}
 			if d.DB {
 				want = append(want, db...)
@@ -158,6 +164,96 @@ func TestWebDepsCoverTheGeneratedCode(t *testing.T) {
 	// layers are written against (Svelte 5.25+).
 	if !strings.Contains(string(b), `"@tanstack/svelte-query": "^6.`) {
 		t.Errorf("package.json must declare the TanStack v6 runes adapter:\n%s", b)
+	}
+}
+
+// TestDesignSystemShapesTheFrontend: --ds is recorded nowhere but in the files
+// it writes, so the files are what this test reads. Both legs get the same
+// Tailwind v4 foundation and the same root shell; only the design system on
+// top of it differs.
+func TestDesignSystemShapesTheFrontend(t *testing.T) {
+	render := func(ds string) func(string) string {
+		dir := filepath.Join(t.TempDir(), "speedcheck")
+		if err := scaffold(dir, testData("speedcheck", scaffoldData{Web: true, DS: ds})); err != nil {
+			t.Fatal(err)
+		}
+		return func(rel string) string {
+			b, err := os.ReadFile(filepath.Join(dir, rel))
+			if err != nil && !strings.Contains(rel, ".npmrc") {
+				t.Fatal(err)
+			}
+			return string(b)
+		}
+	}
+
+	connected := render(dsConnected)
+	for _, want := range []struct{ file, s string }{
+		{"web/package.json", `"@connected/svelte-connected-design": "^0.2.0"`},
+		{"web/package.json", `"tailwindcss": "^4`},
+		{"web/package.json", `"@tailwindcss/vite": "^4`},
+		// The trailing slash is not cosmetic: without it bun mis-joins the
+		// scope path and depot answers with an HTML page.
+		{"web/.npmrc", "@connected:registry=https://depot.connectedtech.dev/npm/\n"},
+		{"web/src/app.css", `@import "@connected/tailwindcss-connected-design/themes/default.css";`},
+		{"web/src/routes/+layout.svelte", `import { Toaster } from '@connected/svelte-connected-design/toast';`},
+		{"web/src/routes/+layout.svelte", "<Toaster />"},
+		{"web/vite.config.ts", "plugins: [tailwindcss(), sveltekit()]"},
+	} {
+		if !strings.Contains(connected(want.file), want.s) {
+			t.Errorf("--ds connected: %s missing %q:\n%s", want.file, want.s, connected(want.file))
+		}
+	}
+	// The theme file already imports tailwindcss; a second import registers
+	// every utility twice.
+	if strings.Contains(connected("web/src/app.css"), `@import "tailwindcss"`) {
+		t.Errorf("--ds connected must not double-import tailwindcss:\n%s", connected("web/src/app.css"))
+	}
+
+	bare := render(dsBare)
+	for _, want := range []struct{ file, s string }{
+		{"web/package.json", `"tailwindcss": "^4`},
+		{"web/src/app.css", `@import "tailwindcss";`},
+		{"web/src/app.css", "@theme {"},
+		{"web/src/routes/+layout.svelte", "import '../app.css';"},
+		{"web/src/routes/+layout.svelte", "{@render children()}"},
+	} {
+		if !strings.Contains(bare(want.file), want.s) {
+			t.Errorf("--ds bare: %s missing %q:\n%s", want.file, want.s, bare(want.file))
+		}
+	}
+	// No design system, and therefore no private registry to reach.
+	if strings.Contains(bare("web/package.json"), "@connected/") {
+		t.Errorf("--ds bare must not depend on the design system:\n%s", bare("web/package.json"))
+	}
+	if bare("web/.npmrc") != "" {
+		t.Errorf("--ds bare must not write an .npmrc:\n%s", bare("web/.npmrc"))
+	}
+}
+
+// TestDesignSystemFlag: the two usage errors. A typo'd value must name both
+// choices rather than silently scaffolding the default.
+func TestDesignSystemFlag(t *testing.T) {
+	for _, c := range []struct {
+		name, want string
+		args       []string
+	}{
+		{"unknown value", "unknown --ds value", []string{"speedcheck", "--ds", "shadcn"}},
+		{"without --web", "--ds needs --web", []string{"speedcheck", "--no-web", "--ds", "bare"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var out, errW bytes.Buffer
+			if code := cmdNew(c.args, &out, &errW); code != 2 {
+				t.Fatalf("must be a usage error, got %d", code)
+			}
+			if !strings.Contains(errW.String(), c.want) {
+				t.Errorf("the error must say %q:\n%s", c.want, errW.String())
+			}
+			for _, ds := range []string{dsConnected, dsBare} {
+				if !strings.Contains(errW.String(), ds) {
+					t.Errorf("the usage text must name %q:\n%s", ds, errW.String())
+				}
+			}
+		})
 	}
 }
 
@@ -410,6 +506,27 @@ func TestScaffoldCovenant(t *testing.T) {
 					t.Fatal(err)
 				}
 				sh("go", "build", "-tags", "embedspa", "-o", os.DevNull, ".")
+
+				if d.DS == dsConnected {
+					// The ONLY leg that needs depot auth: the design system is
+					// a private library. A machine without it must not turn the
+					// covenant red, so an unreachable registry skips with the
+					// reason — and any OTHER install failure is a real one.
+					if _, err := exec.LookPath("bun"); err != nil {
+						t.Skipf("no bun, so the design system was never resolved: %v", err)
+					}
+					install := exec.Command("bun", "install")
+					install.Dir = filepath.Join(dir, "web")
+					bunOut, err := install.CombinedOutput()
+					switch {
+					case err == nil:
+						t.Logf("bun install\n%s", bunOut)
+					case depotOutOfReach(bunOut):
+						t.Skipf("the depot registry is out of reach, so --ds connected stops here:\n%s", bunOut)
+					default:
+						t.Fatalf("bun install failed: %v\n%s", err, bunOut)
+					}
+				}
 			}
 		})
 	}
@@ -421,6 +538,22 @@ func offline(out []byte) bool {
 	s := string(out)
 	for _, sign := range []string{"dial tcp", "no such host", "connection refused",
 		"proxy.golang.org", "i/o timeout", "TLS handshake timeout"} {
+		if strings.Contains(s, sign) {
+			return true
+		}
+	}
+	return false
+}
+
+// depotOutOfReach reports whether a `bun install` failed because the private
+// registry would not authenticate or could not be dialled, rather than because
+// the manifest is wrong. Depot answers an unauthenticated fetch with 401, which
+// bun reports as: error: GET <url> - 401. A bad version pin says "failed to
+// resolve" with no such line, and must stay a failure.
+func depotOutOfReach(out []byte) bool {
+	s := string(out)
+	for _, sign := range []string{" - 401", " - 403", "ConnectionRefused",
+		"ConnectionClosed", "FailedToOpenSocket", "getaddrinfo", "ETIMEDOUT", "timed out"} {
 		if strings.Contains(s, sign) {
 			return true
 		}

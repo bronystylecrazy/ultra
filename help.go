@@ -252,6 +252,11 @@ config.toml + Taskfile + AGENTS.md.
 --db --web --auth are ON by default; --bare turns all three off, and a
 later --db/--web/--auth turns one back on.
 
+--ds picks the frontend's design system (--web only). connected (the
+default) wires @connected/svelte-connected-design from the depot registry, so
+bun install needs depot auth. bare wires Tailwind v4 and an empty @theme:
+the open foundation, for a product that diverges deliberately.
+
 --from is REVERSE scaffolding, the legacy-service on-ramp: an OpenAPI 3.x
 document in, a doctrine-shaped product out — a feature package per tag,
 one api.Handle per path+method, request/response structs from the schemas,
@@ -266,6 +271,7 @@ convert YAML first.`,
 					{"--db, --no-db", "Postgres pool + migrations (on by default)"},
 					{"--web, --no-web", "the SvelteKit frontend (on by default)"},
 					{"--auth, --no-auth", "identity + route enforcement (on by default)"},
+					{"--ds connected|bare", "the design system for --web (default: connected)"},
 					{"--from openapi.json", "reverse-scaffold from an OpenAPI 3.x document"},
 				},
 				subs: []*command{

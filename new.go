@@ -40,6 +40,14 @@ const modulePath = "github.com/bronystylecrazy/ultrastack"
 // included — GOPRIVATE globs do not descend into the module they name.
 const privateGlob = "github.com/bronystylecrazy/*"
 
+// The --ds values. The company design system is a PRIVATE library on the
+// depot registry, so `bare` exists for a machine (or a product) without it:
+// the same Tailwind foundation, no DS.
+const (
+	dsConnected = "connected"
+	dsBare      = "bare"
+)
+
 // scaffoldData is what every template sees. The three capability booleans
 // are the whole story: a file exists only when a flag asks for it, and the
 // templates never emit a placeholder for a capability that is off.
@@ -51,6 +59,7 @@ type scaffoldData struct {
 	DB        bool   // --db:   pg + migrate + internal/db
 	Web       bool   // --web:  SPA seam + web/ SvelteKit skeleton
 	Auth      bool   // --auth: contrib/auth wired and enforcing
+	DS        string // --ds:   the frontend's design system (--web only)
 
 	// The --auth dev seed. A scaffold that mounts login routes over an empty
 	// user store and a commented-out signing key is un-loginnable on arrival,
@@ -156,7 +165,15 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		files["web/gitignore.tmpl"] = "web/.gitignore"
 		files["web/src/app.html.tmpl"] = "web/src/app.html"
 		files["web/src/routes/layout.ts.tmpl"] = "web/src/routes/+layout.ts"
+		files["web/src/routes/layout.svelte.tmpl"] = "web/src/routes/+layout.svelte"
 		files["web/src/routes/page.svelte.tmpl"] = "web/src/routes/+page.svelte"
+		// The stylesheet the root shell imports — the design system under
+		// --ds connected, Tailwind and an empty @theme under --ds bare.
+		files["web/src/app.css.tmpl"] = "web/src/app.css"
+		if d.DS == dsConnected {
+			// The @connected scope resolves through depot, not npm.
+			files["web/npmrc.tmpl"] = "web/.npmrc"
+		}
 		files["web/src/lib/api/gitkeep.tmpl"] = "web/src/lib/api/.gitkeep"
 		// A seed of the generated dev proxy so `task dev:web` forwards
 		// correctly before the first `task gen`; that command rewrites it.
@@ -188,6 +205,11 @@ func scaffold(dir string, d scaffoldData) error {
 	}
 	if err := d.fillDevSeed(); err != nil {
 		return err
+	}
+	// Defaulted here as well as in cmdNew so a direct caller — a test, an
+	// embedder — never renders a web/ whose app.css has no design system.
+	if d.Web && d.DS == "" {
+		d.DS = dsConnected
 	}
 	if d.plan != nil && d.From == "" {
 		d.From = d.plan.Source
@@ -320,6 +342,8 @@ func cmdNew(args []string, out, errW io.Writer) int {
 			version, rest = rest[1], rest[2:]
 		case a == "--from" && len(rest) > 1:
 			from, rest = rest[1], rest[2:]
+		case a == "--ds" && len(rest) > 1:
+			d.DS, rest = rest[1], rest[2:]
 		case strings.HasPrefix(a, "-"):
 			node := ultraTree().find("new")
 			fmt.Fprintf(errW, "Error: unknown flag %q for %q\n\n", a, node.path())
@@ -336,6 +360,19 @@ func cmdNew(args []string, out, errW io.Writer) int {
 	if name == "" {
 		ultraTree().find("new").help(errW)
 		return 2
+	}
+	switch {
+	case d.DS != "" && d.DS != dsConnected && d.DS != dsBare:
+		fmt.Fprintf(errW, "Error: unknown --ds value %q — use %s (the company design system) or %s (Tailwind alone)\n\n",
+			d.DS, dsConnected, dsBare)
+		ultraTree().find("new").help(errW)
+		return 2
+	case d.DS != "" && !d.Web:
+		fmt.Fprintf(errW, "Error: --ds needs --web — a design system with no frontend to style\n\n")
+		ultraTree().find("new").help(errW)
+		return 2
+	case d.Web && d.DS == "":
+		d.DS = dsConnected
 	}
 	if module == "" {
 		module = "example.com/" + name
@@ -394,6 +431,13 @@ replace directives in go.mod to build against a local checkout)
 	if d.Web {
 		fmt.Fprint(out, "  task dev:web     # the SvelteKit dev server (bun install first)\n")
 		fmt.Fprint(out, "  task e2e         # the golden path in a browser (bun + npx playwright)\n")
+		if d.DS == dsConnected {
+			fmt.Fprint(out, `
+web/ is wired to @connected/svelte-connected-design, and web/.npmrc points the
+@connected scope at depot — `+"`bun install`"+` needs depot auth. Without it,
+scaffold with --ds bare: the same Tailwind foundation, no design system.
+`)
+		}
 	}
 	fmt.Fprintf(out, "\nThe first `task test` writes the committed contract artifacts —\nopenapi.json%s. Add them to the first commit:\nfrom then on a contract change that forgets `task contracts` fails the test.\n",
 		map[bool]string{true: " and web/src/lib/api", false: ""}[d.Web])

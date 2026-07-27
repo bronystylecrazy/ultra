@@ -1,4 +1,5 @@
 import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import proxyPaths from './src/lib/api/vite.proxy.json';
 
@@ -12,6 +13,8 @@ const proxy = Object.fromEntries(
 );
 
 export default defineConfig({
-	plugins: [sveltekit()],
+	// tailwindcss() before sveltekit(): the CSS pipeline must be in place
+	// before SvelteKit hands it a <style> block.
+	plugins: [tailwindcss(), sveltekit()],
 	server: { proxy }
 });

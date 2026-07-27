@@ -1,0 +1,15 @@
+<script lang="ts">
+	// The root shell every page renders inside — importing app.css here is what
+	// makes the stylesheet exist at all. GROW this file: chrome, providers, and
+	// anything that must outlive a navigation belong here, not in +page.svelte.
+{{- if eq .DS "connected"}}
+	import { Toaster } from '@connected/svelte-connected-design/toast';
+{{- end}}
+	import '../app.css';
+
+	let { children } = $props();
+</script>
+{{if eq .DS "connected"}}
+<Toaster />
+{{end}}
+{@render children()}
