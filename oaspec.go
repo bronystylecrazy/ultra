@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -58,6 +59,13 @@ type oaOp struct {
 	Callbacks   []string // callback names: listed, never translated
 	Secured     bool     // effective security (op override, else the document's)
 
+	// The vendor extensions contrib/api emits and `ultra breaking` gates on.
+	// ErrorCodes is the UNION the generated client's <Fn>Error union is built
+	// from: the operation-level x-error-codes (api.Codes) plus every error
+	// response's own, sorted and deduplicated.
+	ErrorCodes []string
+	Permission string // x-required-permission
+
 	// Settled by nameOp before any feature renders, because both names are
 	// unique across the WHOLE product and a feature cannot see its siblings.
 	plannedSym    string // the client symbol / operationId
@@ -78,10 +86,11 @@ type oaParam struct {
 // types the source declared (so a non-JSON-only payload can be reported by
 // name instead of silently becoming `api.None`).
 type oaPayload struct {
-	Schema *oaSchema
-	Media  []string // every media type the source listed, document order
-	JSON   bool     // one of them is application/json (or a +json suffix)
-	Empty  bool     // the payload declares no content at all (a 204)
+	Schema   *oaSchema
+	Media    []string // every media type the source listed, document order
+	JSON     bool     // one of them is application/json (or a +json suffix)
+	Empty    bool     // the payload declares no content at all (a 204)
+	Required bool     // requestBody.required — meaningless on a response
 }
 
 // oaSchema is a JSON Schema subset: the constructs the translator can turn
@@ -256,6 +265,8 @@ func parseOp(method, path string, raw json.RawMessage, globalSecurity bool) (*oa
 		Security    []json.RawMessage `json:"security"`
 		HasSecurity json.RawMessage   `json:"-"`
 		Callbacks   json.RawMessage   `json:"callbacks"`
+		ErrorCodes  []string          `json:"x-error-codes"`
+		Permission  string            `json:"x-required-permission"`
 	}
 	if err := json.Unmarshal(raw, &o); err != nil {
 		return nil, err
@@ -277,6 +288,8 @@ func parseOp(method, path string, raw json.RawMessage, globalSecurity bool) (*oa
 		Description: o.Description,
 		Deprecated:  o.Deprecated,
 		Secured:     secured,
+		ErrorCodes:  o.ErrorCodes,
+		Permission:  o.Permission,
 	}
 	for _, p := range o.Parameters {
 		if param := parseParam(p); param != nil {
@@ -308,6 +321,15 @@ func parseOp(method, path string, raw json.RawMessage, globalSecurity bool) (*oa
 				if _, err := fmt.Sscanf(k, "%d", &n); err == nil {
 					op.Errors = append(op.Errors, n)
 				}
+				// contrib/api puts the codes valid for THIS status on the
+				// response; api.Codes declarations ride the operation. The
+				// generated client's <Fn>Error union is the union of both.
+				var resp struct {
+					Codes []string `json:"x-error-codes"`
+				}
+				if json.Unmarshal(vals[k], &resp) == nil {
+					op.ErrorCodes = append(op.ErrorCodes, resp.Codes...)
+				}
 			}
 		}
 		if best != "" {
@@ -316,6 +338,8 @@ func parseOp(method, path string, raw json.RawMessage, globalSecurity bool) (*oa
 		}
 		sort.Ints(op.Errors)
 	}
+	sort.Strings(op.ErrorCodes)
+	op.ErrorCodes = slices.Compact(op.ErrorCodes)
 	return op, nil
 }
 
@@ -353,10 +377,11 @@ func jsonMedia(m string) bool {
 
 func parsePayload(raw json.RawMessage) *oaPayload {
 	var body struct {
-		Content json.RawMessage `json:"content"`
+		Content  json.RawMessage `json:"content"`
+		Required bool            `json:"required"`
 	}
 	_ = json.Unmarshal(raw, &body)
-	out := &oaPayload{}
+	out := &oaPayload{Required: body.Required}
 	if len(body.Content) == 0 {
 		out.Empty = true
 		return out

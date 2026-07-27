@@ -82,6 +82,37 @@ contract to compare it (a product build).`,
 				},
 			},
 			{
+				name:  "breaking",
+				args:  "<old.json> <new.json> | --against <ref> [dir]",
+				short: "gate a contract change against its consumers",
+				long: `Compare two OpenAPI documents and name every change that breaks a
+consumer of the old one.
+
+It classifies by the DIRECTION the bytes travel, not by whether the
+document changed. A response field is READ by consumers, so removing it
+breaks them. A request field is WRITTEN by them, and contrib/api decodes
+request bodies with a plain json.Decoder — an unknown key is dropped, not
+rejected — so removing one is a WARNING, and the warning says the part
+that hurts: the sender's intent is discarded with no 4xx.
+
+The mirror runs through the whole taxonomy. Adding a REQUEST enum value is
+safe; adding a RESPONSE one is a warning, because a consumer switching
+exhaustively has no arm for it. An array going nullable in a response is
+BREAKING — the null→[] guarantee means nobody wrote the null check.
+
+Additive changes are reported in their own section and never gate: "no
+breaking changes" and "no changes" are different answers.
+
+Exit 1 with named findings when something breaks, 0 otherwise — so the
+one line that gates every pull request is:
+
+  ultra breaking --against origin/main`,
+				flags: []flagDoc{
+					{"--against <ref>", "compare openapi.json at a git ref against the working tree"},
+					{"--json", "the findings as one JSON document"},
+				},
+			},
+			{
 				name:  "codes",
 				short: "list every diagnostic code with its summary",
 				long: `List every diagnostic code this binary knows, one line each.

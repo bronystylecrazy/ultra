@@ -1,0 +1,270 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Notes",
+    "version": "2.0.0"
+  },
+  "paths": {
+    "/v1/admin": {
+      "get": {
+        "operationId": "adminPing",
+        "tags": ["admin"],
+        "security": [{"session": []}, {"apiKey": []}],
+        "x-required-permission": "admin.read",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}}}}
+          }
+        }
+      }
+    },
+    "/v1/annotations": {
+      "post": {
+        "operationId": "createAnnotation",
+        "tags": ["annotations"],
+        "requestBody": {
+          "required": false,
+          "content": {"application/json": {"schema": {"type": "object", "properties": {"body": {"type": "string"}}}}}
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"id": {"type": "string"}}}}}
+          }
+        }
+      }
+    },
+    "/v1/drafts": {
+      "post": {
+        "operationId": "createDraft",
+        "tags": ["drafts"],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "properties": {"title": {"type": "string"}}}}}
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"id": {"type": "string"}}}}}
+          }
+        }
+      }
+    },
+    "/v1/exports": {
+      "post": {
+        "operationId": "createExport",
+        "tags": ["exports"],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"id": {"type": "string"}}}}}
+          }
+        }
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "ping",
+        "tags": ["ops"],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}}}}
+          }
+        }
+      }
+    },
+    "/v1/metrics": {
+      "get": {
+        "operationId": "getStats",
+        "tags": ["ops"],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"count": {"type": "integer"}}}}}
+          }
+        }
+      }
+    },
+    "/v1/notes": {
+      "get": {
+        "operationId": "listNotes",
+        "tags": ["notes"],
+        "parameters": [
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NotePage"}}}
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}},
+            "x-error-codes": ["internal"]
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}},
+            "x-error-codes": ["notes.unavailable"]
+          }
+        }
+      },
+      "post": {
+        "operationId": "createNote",
+        "tags": ["notes"],
+        "parameters": [
+          {"name": "dryRun", "in": "query", "required": true, "schema": {"type": "boolean"}},
+          {"name": "tenant", "in": "query", "required": true, "schema": {"type": "string"}},
+          {"name": "trace", "in": "query", "required": false, "schema": {"type": "string"}},
+          {"name": "page", "in": "query", "required": false, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "properties": {
+              "title": {"type": "string"},
+              "body": {"type": "string"},
+              "slug": {"type": "string"},
+              "priority": {"type": "integer"},
+              "color": {"type": "string"},
+              "kind": {"type": "string", "enum": ["published", "archived", "scheduled"]},
+              "weight": {"type": "integer"},
+              "note": {"type": "string"},
+              "tag": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+              "visibility": {"type": "string", "enum": ["public", "private"]},
+              "format": {"type": "string"}
+            },
+            "required": ["title", "body", "priority"]
+          }}}
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreatedNote"}}}
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}},
+            "x-error-codes": ["request.invalid"]
+          }
+        }
+      }
+    },
+    "/v1/notes/{id}": {
+      "patch": {
+        "operationId": "updateNote",
+        "tags": ["notes"],
+        "security": [{"session": []}, {"apiKey": []}],
+        "x-required-permission": "notes.admin",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreatedNote"}}}
+          }
+        }
+      }
+    },
+    "/v1/notes/{id}/poke": {
+      "post": {
+        "operationId": "pokeNote",
+        "tags": ["notes"],
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {"204": {"description": "No Content"}}
+      }
+    },
+    "/v1/notes/{id}/touch": {
+      "post": {
+        "operationId": "touchNote",
+        "tags": ["notes"],
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "properties": {"at": {"type": "string"}}, "required": ["at"]}}}
+        },
+        "responses": {"204": {"description": "No Content"}}
+      }
+    },
+    "/v1/ping": {
+      "get": {
+        "operationId": "pingCheck",
+        "tags": ["ops"],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}}}}
+          }
+        }
+      }
+    },
+    "/v1/public": {
+      "get": {
+        "operationId": "publicize",
+        "tags": ["ops"],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}}}}
+          }
+        }
+      }
+    },
+    "/v1/tags": {
+      "get": {
+        "operationId": "listTags",
+        "tags": ["tags"],
+        "responses": {"204": {"description": "No Content"}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreatedNote": {
+        "type": "object",
+        "properties": {"id": {"type": "string"}},
+        "required": ["id"]
+      },
+      "Note": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "status": {"type": "string", "enum": ["active", "archived"]},
+          "shape": {"oneOf": [{"type": "string"}, {"type": "integer"}, {"type": "boolean"}]}
+        },
+        "required": ["id", "title"]
+      },
+      "NotePage": {
+        "type": "object",
+        "properties": {
+          "items": {"anyOf": [{"type": "array", "items": {"$ref": "#/components/schemas/Note"}}, {"type": "null"}]},
+          "nextCursor": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+          "total": {"type": "string"},
+          "generatedAt": {"type": "string", "format": "date-time"},
+          "hasMore": {"type": "boolean"},
+          "author": {"type": "string"},
+          "tier": {"type": "string"},
+          "region": {"type": "string", "enum": ["eu", "us"]},
+          "kind": {"type": "string"}
+        },
+        "required": ["items", "total", "kind"]
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "code": {"type": "string"},
+          "title": {"type": "string"},
+          "status": {"type": "integer"}
+        },
+        "required": ["code", "status"]
+      }
+    },
+    "securitySchemes": {
+      "apiKey": {"type": "http", "scheme": "bearer"},
+      "session": {"type": "apiKey", "in": "cookie", "name": "ultra_session"}
+    }
+  }
+}

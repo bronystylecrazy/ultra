@@ -192,6 +192,14 @@ var mcpTools = []map[string]any{
 		}, "old", "new"),
 	},
 	{
+		"name":        "breaking",
+		"description": "Compares two OpenAPI documents and returns every change that would break a consumer of the old one, as JSON: {old, new, breaking, warnings, additive, findings[{severity, kind, operation, method, path, location, detail}]}. Severity is breaking|warning|additive, and each finding's detail names WHO breaks. Call it BEFORE proposing an API change, and after making one: a non-zero `breaking` count means the change cannot ship without a consumer migration.",
+		"inputSchema": objSchema(map[string]any{
+			"old": strProp("Path to the baseline openapi.json."),
+			"new": strProp("Path to the candidate openapi.json."),
+		}, "old", "new"),
+	},
+	{
 		"name":        "brief",
 		"description": "Returns the orientation pack for one product — module, framework pin, canonical root, wired presets, the operation table from openapi.json, config sections and what binds each, artifact state, recent contract commits. Call it FIRST when you land in an unfamiliar product; it replaces five separate reads.",
 		"inputSchema": objSchema(map[string]any{
@@ -242,6 +250,7 @@ var mcpDispatch = map[string]func(json.RawMessage) (string, error){
 	"graph":        toolGraph,
 	"blast":        toolBlast,
 	"diff":         toolDiff,
+	"breaking":     toolBreaking,
 	"brief":        toolBrief,
 	"report":       toolReport,
 	"new_table":    toolNewTable,
@@ -354,6 +363,18 @@ func toolDiff(raw json.RawMessage) (string, error) {
 	}
 	report, _, _ := diffGraphs(string(oldB), string(newB))
 	return report, nil
+}
+
+func toolBreaking(raw json.RawMessage) (string, error) {
+	var a struct {
+		Old string `json:"old"`
+		New string `json:"new"`
+	}
+	json.Unmarshal(raw, &a)
+	if a.Old == "" || a.New == "" {
+		return "", fmt.Errorf("breaking: old and new are required")
+	}
+	return breakingText(a.Old, a.New)
 }
 
 func toolBrief(raw json.RawMessage) (string, error) {

@@ -19,21 +19,22 @@ Usage:
   ultra [command]
 
 Available Commands:
-  brief     the orientation pack: one product, one page
-  codes     list every diagnostic code with its summary
-  contrib   this product's capabilities: list, add, remove
-  dev       the inner loop in one terminal
-  diff      semantic diff of two GraphSummary files
-  explain   the mini-lesson behind one diagnostic code
-  fleet     many products at once, from above
-  help      help about any command
-  mcp       Model Context Protocol server over stdio
-  new       scaffold a product, or a feature inside one
-  report    file a field report where the fleet can read it
-  skill     the vendored doctrine: generate and install
-  upgrade   move THIS product onto a framework release
-  version   print the ultra, build and Go versions
-  vet       static wiring checks before anything runs
+  breaking   gate a contract change against its consumers
+  brief      the orientation pack: one product, one page
+  codes      list every diagnostic code with its summary
+  contrib    this product's capabilities: list, add, remove
+  dev        the inner loop in one terminal
+  diff       semantic diff of two GraphSummary files
+  explain    the mini-lesson behind one diagnostic code
+  fleet      many products at once, from above
+  help       help about any command
+  mcp        Model Context Protocol server over stdio
+  new        scaffold a product, or a feature inside one
+  report     file a field report where the fleet can read it
+  skill      the vendored doctrine: generate and install
+  upgrade    move THIS product onto a framework release
+  version    print the ultra, build and Go versions
+  vet        static wiring checks before anything runs
 
 Flags:
   -h, --help   help for ultra

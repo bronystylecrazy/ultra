@@ -141,6 +141,9 @@ func run(args []string, out, errW io.Writer) int {
 
 	case "diff":
 		return cmdDiff(rest, out, errW)
+
+	case "breaking":
+		return cmdBreaking(rest, out, errW)
 	}
 
 	root.unknown(errW, args[0])
