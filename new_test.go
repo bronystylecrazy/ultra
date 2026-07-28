@@ -87,6 +87,9 @@ func TestFlagsShapeTheTree(t *testing.T) {
 			if d.Web {
 				want = append(want, web...)
 			}
+			if d.Web && d.Auth {
+				want = append(want, "web/src/routes/login/+page.svelte")
+			}
 			if d.DS == dsConnected {
 				want = append(want, "web/.npmrc")
 			}
@@ -231,6 +234,12 @@ func TestWebDepsCoverTheGeneratedCode(t *testing.T) {
 	// layers are written against (Svelte 5.25+).
 	if !strings.Contains(string(b), `"@tanstack/svelte-query": "^6.`) {
 		t.Errorf("package.json must declare the TanStack v6 runes adapter:\n%s", b)
+	}
+	// vite.config.ts and playwright.config.ts read process.env, and svelte-kit's
+	// tsconfig includes the config files — without node types `bun run check` is
+	// red on a file the product owner never wrote.
+	if !strings.Contains(string(b), `"@types/node": "^`) {
+		t.Errorf("package.json must declare node types for the config files:\n%s", b)
 	}
 }
 
@@ -394,12 +403,118 @@ func TestAuthScaffoldIsLoginnable(t *testing.T) {
 
 	// A --no-auth product carries none of it.
 	bare := filepath.Join(t.TempDir(), d.Name)
-	if err := scaffold(bare, testData("speedcheck", scaffoldData{})); err != nil {
+	if err := scaffold(bare, testData("speedcheck", scaffoldData{Web: true, DS: dsBare})); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = os.ReadFile(filepath.Join(bare, "config.toml"))
 	if strings.Contains(string(b), "[auth.jwt]") {
 		t.Errorf("a product without --auth gets no jwt secret:\n%s", b)
+	}
+	if _, err := os.Stat(filepath.Join(bare, "web", "src", "routes", "login")); err == nil {
+		t.Error("a product without --auth gets no login page — there is nothing to sign in to")
+	}
+	b, _ = os.ReadFile(filepath.Join(bare, "web", "src", "routes", "+layout.ts"))
+	if strings.Contains(string(b), "redirect(") {
+		t.Errorf("a product without --auth must not guard its own routes:\n%s", b)
+	}
+}
+
+// TestAuthWebScaffoldHasADoor is the frontend half of "loginnable". Two of
+// three products built by agents on the --web --auth scaffold shipped with auth
+// machinery and NO way in: every route 401s, and the UI has no screen that
+// could ever say who the user is. So the door ships by default — a login page,
+// a guard that sends anonymous visitors to it, and a golden path that walks
+// through it, all agreeing on the same labels and the same seeded user.
+func TestAuthWebScaffoldHasADoor(t *testing.T) {
+	for _, ds := range []string{dsConnected, dsBare} {
+		t.Run(ds, func(t *testing.T) {
+			d := testData("speedcheck", scaffoldData{Web: true, Auth: true, DS: ds})
+			dir := filepath.Join(t.TempDir(), d.Name)
+			if err := scaffold(dir, d); err != nil {
+				t.Fatal(err)
+			}
+			read := func(rel string) string {
+				b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(b)
+			}
+			login := read("web/src/routes/login/+page.svelte")
+			label := scaffoldData{}.Login()
+
+			// The page signs in through the GENERATED store — not a hand-rolled
+			// fetch that has to relearn the cookie, the problem shape, and the
+			// reload story — and it is marked as the placeholder it is. Not
+			// DELETE ME: a product that enforces auth needs SOME login page.
+			for _, want := range []string{
+				"import { session } from '$lib/api/auth.svelte'",
+				"session.signIn({ username, password })",
+				"localize(err)", // the problem's own message, in the reader's language
+				"t('login.submit')",
+				"REPLACE IT, DO NOT DELETE IT",
+			} {
+				if !strings.Contains(login, want) {
+					t.Errorf("the login page is missing %q:\n%s", want, login)
+				}
+			}
+			if strings.Contains(login, "DELETE ME") {
+				t.Errorf("the login page is replaced, never deleted:\n%s", login)
+			}
+			// DS-composed where there is a design system, and hand-rolled only
+			// where there is none.
+			if used := strings.Contains(login, "@connected/svelte-connected-design/field"); used != (ds == dsConnected) {
+				t.Errorf("--ds %s: Field used = %v:\n%s", ds, used, login)
+			}
+
+			// Every visible string is a key, in EVERY catalog: a key in en and
+			// not th fails the product's own TestWiring with I18N0202.
+			for _, cat := range []string{"messages/en.toml", "messages/th.toml"} {
+				for _, key := range []string{"login.title", "login.username", "login.password",
+					"login.submit", "auth.invalid_credentials"} {
+					if !strings.Contains(read(cat), `"`+key+`"`) {
+						t.Errorf("%s is missing %q", cat, key)
+					}
+				}
+			}
+			// The English values ARE the labels the spec types into.
+			en := read("messages/en.toml")
+			for _, v := range []string{label.Username, label.Password, label.Submit} {
+				if !strings.Contains(en, `= "`+v+`"`) {
+					t.Errorf("messages/en.toml must carry the label %q:\n%s", v, en)
+				}
+			}
+
+			// The guard: without it the login page is a page nobody is ever
+			// sent to, and the product is exactly as unenterable as before.
+			layout := read("web/src/routes/+layout.ts")
+			for _, want := range []string{"session.authenticated", "redirect(307, '/login')", "'/login'"} {
+				if !strings.Contains(layout, want) {
+					t.Errorf("+layout.ts must send anonymous visitors to the login page, missing %q:\n%s", want, layout)
+				}
+			}
+
+			// And the golden path goes through the door rather than around it —
+			// with the credentials main.go actually seeds. A spec that still
+			// expected the old anonymous landing page would fail on the first
+			// run of `task e2e`, which is the covenant this pins.
+			pw := regexp.MustCompile(`auth\.NewUser\("dev", "([0-9a-f]{18})"`).FindStringSubmatch(read("main.go"))
+			if pw == nil {
+				t.Fatal("main.go must seed one dev user")
+			}
+			spec := read("web/e2e/golden.spec.ts")
+			for _, want := range []string{
+				"toHaveURL(/\\/login$/)",
+				"getByLabel('" + label.Username + "')",
+				"getByLabel('" + label.Password + "')",
+				"getByRole('button', { name: '" + label.Submit + "' })",
+				"?? '" + pw[1] + "'",
+			} {
+				if !strings.Contains(spec, want) {
+					t.Errorf("the golden spec must sign in through the login page, missing %q:\n%s", want, spec)
+				}
+			}
+		})
 	}
 }
 

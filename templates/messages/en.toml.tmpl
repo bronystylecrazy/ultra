@@ -4,7 +4,21 @@
 # TestWiring (I18N0202); `./app client` derives web/src/lib/i18n from here.
 
 "app.greeting" = "Welcome to {{.Name}}, {name}"
-
+{{if and .Web .Auth}}
+# The scaffolded login page (web/src/routes/login) — its copy, and nothing
+# else. Replace the page and these move with it.
+"login.title"    = "Sign in to {{.Name}}"
+"login.username" = "{{.Login.Username}}"
+"login.password" = "{{.Login.Password}}"
+"login.submit"   = "{{.Login.Submit}}"
+{{end}}
+{{- if .Auth}}
+# contrib/auth's own codes, so a rejected sign-in reads as words — on the wire
+# for an API client, and through localize() on the login page.
+"auth.invalid_credentials" = "Wrong username or password"
+"auth.rate_limited"        = "Too many attempts — wait a moment and try again"
+"auth.required"            = "Sign in to continue"
+{{end}}
 # Framework codes a problem response localizes through (add your feature's
 # errors.go codes here as they ship):
 "request.invalid"     = "The request failed validation"

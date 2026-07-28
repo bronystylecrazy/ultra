@@ -2,7 +2,17 @@
 # parity is proven at Validate); only the words move.
 
 "app.greeting" = "ยินดีต้อนรับสู่ {{.Name}}, {name}"
-
+{{if and .Web .Auth}}
+"login.title"    = "เข้าสู่ระบบ {{.Name}}"
+"login.username" = "ชื่อผู้ใช้"
+"login.password" = "รหัสผ่าน"
+"login.submit"   = "เข้าสู่ระบบ"
+{{end}}
+{{- if .Auth}}
+"auth.invalid_credentials" = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"
+"auth.rate_limited"        = "พยายามหลายครั้งเกินไป — รอสักครู่แล้วลองใหม่"
+"auth.required"            = "โปรดเข้าสู่ระบบเพื่อดำเนินการต่อ"
+{{end}}
 "request.invalid"     = "คำขอไม่ผ่านการตรวจสอบ"
 "validation.required" = "จำเป็นต้องระบุ {field}"
 "validation.min"      = "{field} ต่ำกว่าค่าต่ำสุด {limit}"

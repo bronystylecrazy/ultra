@@ -3,3 +3,29 @@
 // path.
 export const ssr = false;
 export const prerender = false;
+{{if .Auth}}
+import { redirect } from '@sveltejs/kit';
+import { session } from '$lib/api/auth.svelte';
+import type { LayoutLoad } from './$types';
+
+// The guard, in the ONE place every route passes through: with auth.Protect
+// wired, an anonymous visitor gets 401 from every call, so send them to the
+// login page instead of rendering a screen that can only fail.
+//
+// The identity comes from the session cookie, so this survives a reload — the
+// store is loaded once and the answer is reused on later navigations. Signing
+// out (session.signOut()) empties it, and the next navigation lands here again.
+export const load: LayoutLoad = async ({ url }) => {
+	if (url.pathname === '/login') {
+		return;
+	}
+	if (!session.authenticated) {
+		// A 401 is not an error here — it IS the signed-out state, and load()
+		// resolves null rather than throwing.
+		await session.load();
+	}
+	if (!session.authenticated) {
+		redirect(307, '/login');
+	}
+};
+{{end -}}

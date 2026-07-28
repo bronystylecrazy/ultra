@@ -82,6 +82,14 @@ type scaffoldData struct {
 	plan     *fromPlan
 }
 
+// Login is the scaffolded login page's English copy, in ONE place. The en
+// catalog renders its values and the golden spec types into them, so a reword
+// cannot leave an e2e filling a field that no longer has that label. The Thai
+// side is words only — messages/th.toml.tmpl carries its own.
+func (scaffoldData) Login() struct{ Username, Password, Submit string } {
+	return struct{ Username, Password, Submit string }{"Username", "Password", "Sign in"}
+}
+
 // fillDevSeed generates the --auth dev credentials if they are not already
 // set. Called by cmdNew (which prints them) and by scaffold (so a direct
 // caller — a test, an embedder — never renders a product with a blank signing
@@ -171,6 +179,13 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		files["web/src/routes/layout.ts.tmpl"] = "web/src/routes/+layout.ts"
 		files["web/src/routes/layout.svelte.tmpl"] = "web/src/routes/+layout.svelte"
 		files["web/src/routes/page.svelte.tmpl"] = "web/src/routes/+page.svelte"
+		if d.Auth {
+			// The door. A product that enforces auth and ships no login page
+			// is a product nobody can enter — every route 401s and the UI has
+			// no way to say who it is. +layout.ts sends anonymous visitors
+			// here; unlike the seeded user, this is replaced, never deleted.
+			files["web/src/routes/login/page.svelte.tmpl"] = "web/src/routes/login/+page.svelte"
+		}
 		// The stylesheet the root shell imports — the design system under
 		// --ds connected, Tailwind and an empty @theme under --ds bare.
 		files["web/src/app.css.tmpl"] = "web/src/app.css"

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -205,6 +206,16 @@ func (d *devLoop) childEnv() []string {
 	return env
 }
 
+// webEnv is childEnv plus the API's resolved origin — the frontend is the one
+// child that has to reach the other one.
+func (d *devLoop) webEnv() []string {
+	env := d.childEnv()
+	if origin := devAPIOrigin(d.root); origin != "" {
+		env = append(env, "ULTRA_DEV_API="+origin)
+	}
+	return env
+}
+
 func (d *devLoop) run() int {
 	if err := d.prepareBuildDir(); err != nil {
 		fmt.Fprintln(d.errW, err)
@@ -356,9 +367,76 @@ func (d *devLoop) bootInfra() {
 	}
 }
 
+// devAPIOrigin resolves the origin the API is about to serve on, so the
+// frontend dev server can proxy to it. It walks the same ladder the product
+// does, minus the rung no outsider can see (a product's own di.Supply):
+// ULTRA_HTTP_ADDR — which the child inherits from us — over [http] addr, over
+// the ":8080" default. An addr that is not host:port is left to the product to
+// complain about; "" means we have nothing honest to export.
+//
+// A vite proxy that hardcodes 8080 answers every API call with a 404 the
+// moment the addr moves, and the 404 names nothing.
+func devAPIOrigin(root string) string {
+	addr := os.Getenv("ULTRA_HTTP_ADDR")
+	if addr == "" {
+		addr = devConfigAddr(filepath.Join(root, "config.toml"))
+	}
+	if addr == "" {
+		addr = ":8080"
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return ""
+	}
+	// A wildcard bind is where the server listens, never an address to dial.
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+// devConfigAddr reads [http] addr out of a product's config.toml. A scanner
+// rather than a TOML dependency for one key in one table — cmd/ultra buys a
+// dependency only for what it cannot do plainly. A file it cannot make sense
+// of yields "", and the caller falls back to the default the product would.
+func devConfigAddr(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	section := ""
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			section = strings.Trim(line, "[]")
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok || section != "http" || strings.TrimSpace(key) != "addr" {
+			continue
+		}
+		// The value is a quoted string trailed by whatever comment the
+		// scaffold wrote; the closing quote ends it.
+		val = strings.TrimSpace(val)
+		if len(val) > 1 && (val[0] == '"' || val[0] == '\'') {
+			if end := strings.IndexByte(val[1:], val[0]); end >= 0 {
+				return val[1 : 1+end]
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
 // startWeb spawns the frontend dev server beside the API. bun when it is on
 // PATH (the paved road), npm otherwise. No web/package.json means no
 // frontend, and that is silent — a --bare product is not missing anything.
+//
+// The child is told where the API actually is (ULTRA_DEV_API), because the
+// vite proxy target is not a constant of the universe — see devAPIOrigin.
 func (d *devLoop) startWeb() {
 	webDir := filepath.Join(d.root, "web")
 	if _, err := os.Stat(filepath.Join(webDir, "package.json")); err != nil {
@@ -376,7 +454,7 @@ func (d *devLoop) startWeb() {
 		dir:  webDir,
 		bin:  name,
 		args: args,
-		env:  d.childEnv(),
+		env:  d.webEnv(),
 		pty:  d.pty,
 	}, d.prefixer("[web]", d.out), d.prefixer("[web]", d.errW), d.exits)
 	if err != nil {

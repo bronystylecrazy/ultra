@@ -29,8 +29,25 @@ test('the shell renders and the API answers', async ({ page, request }) => {
 	expect(health.ok()).toBeTruthy();
 {{- end}}
 
+{{- if .Auth}}
+
+	// The frontend half: the EMBEDDED build boots, hydrates, and +layout.ts
+	// sends an anonymous visitor to the login page rather than to a screen
+	// that can only 401.
+	await page.goto('/');
+	await expect(page).toHaveURL(/\/login$/);
+
+	// Then in through the front door, with the user main.go seeds — the same
+	// credentials `ultra new` printed. Point the run at real ones with
+	// E2E_USER / E2E_PASS once the seed is gone.
+	await page.getByLabel('{{.Login.Username}}').fill(process.env.E2E_USER ?? '{{.DevUser}}');
+	await page.getByLabel('{{.Login.Password}}').fill(process.env.E2E_PASS ?? '{{.DevPassword}}');
+	await page.getByRole('button', { name: '{{.Login.Submit}}' }).click();
+{{- else}}
+
 	// The frontend half: the EMBEDDED build boots and hydrates.
 	await page.goto('/');
+{{- end}}
 	await expect(page.getByRole('heading', { name: '{{.Name}}' })).toBeVisible();
 	expect(crashes).toEqual([]);
 });
@@ -38,13 +55,8 @@ test('the shell renders and the API answers', async ({ page, request }) => {
 // TODO — replace the smoke above with the flow itself. The shape:
 //
 {{- if .Auth}}
-//	- log in. The scaffold seeds NO credentials (contrib/auth starts with
-//	  empty in-memory stores), so give the run a user first — a `seed` CLI
-//	  command on the binary, or a dev database that already has one:
-//	    await page.goto('/login');
-//	    await page.getByLabel('Email').fill(process.env.E2E_USER ?? 'dev@example.com');
-//	    await page.getByLabel('Password').fill(process.env.E2E_PASS ?? 'dev');
-//	    await page.getByRole('button', { name: 'Sign in' }).click();
+//	- sign in, which the smoke above already does. Keep it: with auth.Protect
+//	  wired, every flow starts here.
 {{- end}}
 //	- do the one thing the product exists to do (create the record, run the
 //	  import, submit the form) through the UI, never through the API.

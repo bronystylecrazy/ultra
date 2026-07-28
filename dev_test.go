@@ -970,6 +970,65 @@ func TestDevChildEnvOnlyDefaultsAMissingTERM(t *testing.T) {
 	}
 }
 
+// TestDevWebProxyTargetFollowsTheAPIAddr: the vite proxy target is not a
+// constant of the universe. `ultra dev` resolves the addr the API will really
+// serve on and hands it to the frontend child; the scaffolded vite config
+// reads it. Break either half and moving [http] addr turns every API call in
+// the browser into a 404 that names nothing.
+func TestDevWebProxyTargetFollowsTheAPIAddr(t *testing.T) {
+	for _, c := range []struct {
+		name, cfg, env, want string
+	}{
+		{"no config at all", "", "", "http://localhost:8080"},
+		{"the file", "[http]\naddr = \":9090\"   # ULTRA_HTTP_ADDR overrides\n", "", "http://localhost:9090"},
+		{"a host in the file", "[http]\naddr = \"127.0.0.1:9091\"\n", "", "http://127.0.0.1:9091"},
+		// Where it LISTENS is not where you dial it.
+		{"a wildcard bind", "[http]\naddr = \"0.0.0.0:9092\"\n", "", "http://localhost:9092"},
+		{"env over the file", "[http]\naddr = \":9090\"\n", ":9099", "http://localhost:9099"},
+		// [http] in another product's section order, and an addr key that is
+		// not the one we want.
+		{"addr under another table", "[postgres]\naddr = \":5432\"\n[http]\naddr = \":9093\"\n", "", "http://localhost:9093"},
+		// Not host:port: the product will say so far better than we can, and
+		// exporting a target we invented would only move the confusion.
+		{"nonsense", "[http]\naddr = \"nine thousand\"\n", "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			if c.cfg != "" {
+				if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(c.cfg), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			setEnv(t, map[string]string{"ULTRA_HTTP_ADDR": c.env})
+			if got := devAPIOrigin(root); got != c.want {
+				t.Fatalf("devAPIOrigin = %q, want %q", got, c.want)
+			}
+
+			// The seam that matters: it is in the frontend child's environment.
+			setEnv(t, map[string]string{"NO_COLOR": "1"})
+			d := newDevLoop(root, devOptions{}, os.Stdout, os.Stderr)
+			kv := "ULTRA_DEV_API=" + c.want
+			if got := slices.Contains(d.webEnv(), kv); got != (c.want != "") {
+				t.Fatalf("webEnv = %v, want %q present = %v", d.webEnv(), kv, c.want != "")
+			}
+		})
+	}
+
+	// And the other end of the wire: the scaffolded config reads that variable,
+	// with the literal only as the fallback for a bare `bun dev`.
+	dir := filepath.Join(t.TempDir(), "speedcheck")
+	if err := scaffold(dir, testData("speedcheck", scaffoldData{Web: true, DS: dsBare})); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "web", "vite.config.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "process.env.ULTRA_DEV_API ??") {
+		t.Errorf("the vite proxy target must follow ULTRA_DEV_API:\n%s", b)
+	}
+}
+
 // The dependencies ultra dev adds are TOOL dependencies. The importable
 // kernel — what every product links — must still reach nothing outside the
 // standard library, which is why `ultra vet` delegates to its own module in
