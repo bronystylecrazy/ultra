@@ -68,6 +68,9 @@ A dev build serves **no frontend** by design — a 404 at `/` means you wanted
 - **Error codes in `errors.go` are contracts.** Clients localize from them and
   they ride OpenAPI's `x-error-codes`. Never rename a shipped code — add one.
 {{- if .Web}}
+- **Frontend tooling is bun, exclusively.** `bun install`, `bun add`, `bunx`
+  (never npx), `bun run` — no npm, node, yarn or pnpm anywhere, including
+  scripts you generate.
 - **Form controls never appear bare in a form** — they compose under `Field`
   (label, description, errors, a11y wiring). Bare controls are for toolbars and
   search boxes. The UI doctrine — the design system, its traps, and `Field`
