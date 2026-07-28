@@ -1,0 +1,23 @@
+# Strings that are DELIBERATELY not translated.
+#
+# `bun run check` runs scripts/check-i18n.ts, which flags visible text and
+# user-facing attributes (placeholder, label, title, aria-label, alt) that are
+# not {t('feature.key')}. Catalog parity can only audit keys that exist; this is
+# what catches the string that was never made a key at all.
+#
+# Put a literal here ONLY when translating it would be wrong: a brand name, a
+# product name, a unit symbol, an untranslated proper noun, or copy that never
+# ships to a user. Everything else belongs in messages/*.toml — in EVERY locale,
+# or stack.Validate fails with I18N0202.
+#
+# One literal per line, whitespace-collapsed, copied exactly as the checker
+# prints it. `#` starts a comment. An entry nothing matches is reported as a
+# note, so this file stays honest as the screens change.
+
+# --- the scaffold's own placeholder copy ---
+# +page.svelte is the page you are about to delete. When you do, delete these
+# three lines too — the checker will tell you they are unused.
+{{.Name}}
+Screens consume the generated client in
+— declare the contract in Go, run
+, then import the query and mutation factories it emits.

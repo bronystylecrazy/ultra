@@ -1,0 +1,224 @@
+#!/usr/bin/env bun
+/**
+ * check-i18n — the COVERAGE half of the i18n gate.
+ *
+ * Catalog parity (I18N0202) only audits keys that already EXIST: it proves
+ * every locale carries every key some locale carries. It is blind to the
+ * string that was never made a key at all — hardcoded English sails through
+ * `stack.Validate`, through `svelte-check`, and into production.
+ *
+ * This walks the templates and flags what the user can read but the catalog
+ * has never heard of:
+ *   (a) template TEXT that is prose, and
+ *   (b) user-facing ATTRIBUTE literals (placeholder, label, title, aria-label,
+ *       alt)
+ * unless the value is an expression — `{t('feature.key')}` — or the literal is
+ * listed in i18n-allow.txt.
+ *
+ * The heuristic errs toward silence. Punctuation, single letters, `<code>` and
+ * `<pre>` contents, and anything already an expression are not prose, and
+ * src/lib/api, src/lib/i18n and src/lib/ui are generated or vocabulary, not
+ * copy. What survives all of that is either a missing key or a deliberate
+ * literal, and i18n-allow.txt is where deliberate literals go.
+ */
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { parse } from 'svelte/compiler'
+
+const WEB = fileURLToPath(new URL('..', import.meta.url))
+const ALLOW_FILE = join(WEB, 'i18n-allow.txt')
+
+/** Where copy lives. */
+const ROOTS = ['src/routes', 'src/lib']
+/** Generated client, generated catalogs, and the design-system vocabulary. */
+const SKIP = ['src/lib/api', 'src/lib/i18n', 'src/lib/ui']
+/** Attributes a human reads. `title` covers both the tag and the tooltip. */
+const ATTRS = new Set(['placeholder', 'label', 'title', 'aria-label', 'alt'])
+/** Elements whose text is machinery, not copy. */
+const OPAQUE = new Set(['script', 'style', 'code', 'pre', 'kbd', 'samp'])
+/** Prose is two adjacent letters. "3", "—", "a" and "e.g." are not. */
+const PROSE = /\p{L}{2,}/u
+/** Child slots of the template AST; everything else is an ESTree expression. */
+const KIDS = ['fragment', 'nodes', 'body', 'consequent', 'alternate', 'pending', 'then', 'catch', 'fallback', 'children']
+
+type Finding = { rel: string; line: number; column: number; text: string; attr: string | null }
+
+const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+
+/** Reads the allowlist: one literal per line, `#` comments, blanks ignored. */
+function readAllow(): Set<string> {
+  const allow = new Set<string>()
+  if (!existsSync(ALLOW_FILE)) return allow
+  for (const line of readFileSync(ALLOW_FILE, 'utf8').split('\n')) {
+    const s = line.trim()
+    if (s && !s.startsWith('#')) allow.add(s)
+  }
+  return allow
+}
+
+function svelteFiles(dir: string, out: string[] = []): string[] {
+  if (!existsSync(dir)) return out
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'node_modules' || e.name.startsWith('.')) continue
+    const p = join(dir, e.name)
+    if (e.isDirectory()) svelteFiles(p, out)
+    else if (e.name.endsWith('.svelte')) out.push(p)
+  }
+  return out
+}
+
+/** Byte offset → 1-based line/column, over one file's line starts. */
+function locator(src: string) {
+  const starts = [0]
+  for (let i = 0; i < src.length; i++) if (src[i] === '\n') starts.push(i + 1)
+  return (offset: number) => {
+    let lo = 0
+    let hi = starts.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (starts[mid] <= offset) lo = mid
+      else hi = mid - 1
+    }
+    return { line: lo + 1, column: offset - starts[lo] + 1 }
+  }
+}
+
+/** A guessed key, so the fix is a copy-paste and not a naming decision. */
+function suggest(rel: string, text: string): string {
+  const parts = rel.replace(/\\/g, '/').split('/')
+  parts.pop()
+  const feature =
+    parts.reverse().find((p) => p && p !== 'src' && p !== 'routes' && p !== 'lib' && !p.startsWith('(')) ?? 'app'
+  const slug =
+    text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '_')
+      .replace(/^_+|_+$/g, '')
+      .split('_')
+      .filter(Boolean)
+      .slice(0, 4)
+      .join('_') || 'key'
+  return `${feature.replace(/[^\p{L}\p{N}]+/gu, '_')}.${slug}`
+}
+
+function scan(rel: string, src: string, found: Finding[]) {
+  const at = locator(src)
+  const push = (offset: number, text: string, attr: string | null) => {
+    const t = norm(text)
+    if (!PROSE.test(t)) return
+    found.push({ rel, ...at(offset), text: t, attr })
+  }
+
+  const attributes = (node: any) => {
+    for (const a of node.attributes ?? []) {
+      // Spreads, `bind:`, `on:` and friends carry no literal to check.
+      if (!a || a.type !== 'Attribute') continue
+      const key = String(a.name).toLowerCase()
+      if (!ATTRS.has(key)) continue
+      const parts = Array.isArray(a.value) ? a.value : [a.value]
+      // A Text part is a literal; an ExpressionTag is already {t('…')} or
+      // something else we cannot and should not judge.
+      for (const p of parts) if (p && p.type === 'Text') push(p.start, p.data ?? p.raw ?? '', key)
+    }
+  }
+
+  const walk = (node: any, opaque: boolean) => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      for (const n of node) walk(n, opaque)
+      return
+    }
+    if (typeof node.type !== 'string') return
+    switch (node.type) {
+      case 'Text':
+        if (!opaque) push(node.start, node.data ?? node.raw ?? '', null)
+        return
+      // Nothing readable, or nothing structural, inside these.
+      case 'Comment':
+      case 'Script':
+      case 'StyleSheet':
+      case 'ExpressionTag':
+      case 'HtmlTag':
+      case 'RenderTag':
+      case 'ConstTag':
+      case 'DebugTag':
+        return
+    }
+    // Anything with attributes is element-ish, whatever this Svelte version
+    // calls it — RegularElement, Component, SvelteElement, TitleElement.
+    if (Array.isArray(node.attributes)) attributes(node)
+    const name = typeof node.name === 'string' ? node.name.toLowerCase() : ''
+    const inner = opaque || OPAQUE.has(name)
+    for (const k of KIDS) if (node[k]) walk(node[k], inner)
+  }
+
+  const ast: any = parse(src, { modern: true, filename: rel })
+  walk(ast.fragment, false)
+}
+
+// ---- run ---------------------------------------------------------------------
+
+// No generated catalogs means no t() to route anything through: this project
+// has not wired the i18n preset (or has not run `task gen` yet), and demanding
+// keys that cannot exist would be a wall, not a gate.
+if (!existsSync(join(WEB, 'src', 'lib', 'i18n'))) {
+  console.log('check-i18n: no src/lib/i18n — i18n is not wired in this project. Skipped.')
+  process.exit(0)
+}
+
+const allow = readAllow()
+const used = new Set<string>()
+const found: Finding[] = []
+
+for (const root of ROOTS) {
+  for (const abs of svelteFiles(join(WEB, root))) {
+    const rel = relative(WEB, abs).split(sep).join('/')
+    if (SKIP.some((s) => rel === s || rel.startsWith(s + '/'))) continue
+    try {
+      scan(rel, readFileSync(abs, 'utf8'), found)
+    } catch (err) {
+      // A file svelte cannot parse is svelte-check's failure to report, not
+      // ours to duplicate.
+      console.warn(`check-i18n: skipped ${rel} (does not parse): ${(err as Error).message}`)
+    }
+  }
+}
+
+const flagged = found.filter((f) => {
+  if (allow.has(f.text)) {
+    used.add(f.text)
+    return false
+  }
+  return true
+})
+
+for (const entry of allow) {
+  if (!used.has(entry)) console.log(`check-i18n: note — i18n-allow.txt no longer needs ${JSON.stringify(entry)}`)
+}
+
+if (flagged.length === 0) {
+  console.log(`check-i18n: every visible string goes through t() (${allow.size} allowlisted).`)
+  process.exit(0)
+}
+
+console.error(`check-i18n: ${flagged.length} visible string(s) never reach a catalog.\n`)
+for (const f of flagged) {
+  const key = suggest(f.rel, f.text)
+  console.error(`  ${f.rel}:${f.line}:${f.column}${f.attr ? `  (${f.attr})` : ''}`)
+  // The literal, raw and unquoted: this line is what an allowlist entry is.
+  console.error(`    ${f.text}`)
+  console.error(`    fix: ${f.attr ? `${f.attr}=` : ''}{t('${key}')}\n`)
+}
+console.error(
+  [
+    'Every visible string is a t() key. Add it to EVERY catalog under messages/',
+    '(a key in en.toml and not th.toml fails stack.Validate as I18N0202), run',
+    "`task gen`, then import { t } from '$lib/i18n/locale.svelte'.",
+    '',
+    'A deliberate literal — a brand name, a symbol, dev-only copy — goes in',
+    'web/i18n-allow.txt: copy the middle line of a report above, verbatim, onto',
+    'a line of its own.',
+  ].join('\n'),
+)
+process.exit(1)

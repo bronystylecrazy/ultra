@@ -61,8 +61,10 @@ func TestFlagsShapeTheTree(t *testing.T) {
 	}
 	web := []string{
 		"spa.go", "spa_embed.go",
-		"web/.gitignore", "web/e2e/golden.spec.ts", "web/package.json",
-		"web/playwright.config.ts", "web/src/app.css", "web/src/app.html",
+		"web/.gitignore", "web/e2e/golden.spec.ts", "web/i18n-allow.txt",
+		"web/package.json",
+		"web/playwright.config.ts", "web/scripts/check-i18n.ts",
+		"web/src/app.css", "web/src/app.html",
 		"web/src/lib/api/.gitkeep", "web/src/lib/api/vite.proxy.json",
 		"web/src/routes/+layout.svelte", "web/src/routes/+layout.ts",
 		"web/src/routes/+page.svelte",
@@ -143,6 +145,70 @@ func TestGoModWiring(t *testing.T) {
 	} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("go.mod missing %q:\n%s", want, b)
+		}
+	}
+}
+
+// TestI18nCoverageGateIsWired: the checker is worthless unless `bun run check`
+// runs it. A scaffolded script nobody invokes is the same blind spot it exists
+// to close — catalog parity only audits keys that already exist, so hardcoded
+// English otherwise passes every gate.
+func TestI18nCoverageGateIsWired(t *testing.T) {
+	d := testData("speedcheck", scaffoldData{Web: true})
+	dir := filepath.Join(t.TempDir(), d.Name)
+	if err := scaffold(dir, d); err != nil {
+		t.Fatal(err)
+	}
+	read := func(parts ...string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(append([]string{dir}, parts...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	pkg := read("web", "package.json")
+	if !strings.Contains(pkg, "bun scripts/check-i18n.ts") {
+		t.Errorf("the check script must run the i18n gate:\n%s", pkg)
+	}
+	if !strings.Contains(pkg, "svelte-check --tsconfig ./tsconfig.json && bun scripts/check-i18n.ts") {
+		t.Errorf("the i18n gate runs AFTER svelte-check, in the same `check`:\n%s", pkg)
+	}
+
+	// The checker itself: svelte's own parser, the two rule families, and the
+	// three directories that are generated or vocabulary rather than copy.
+	script := read("web", "scripts", "check-i18n.ts")
+	for _, want := range []string{
+		"from 'svelte/compiler'",
+		"src/lib/api",
+		"src/lib/i18n",
+		"src/lib/ui",
+		"placeholder",
+		"aria-label",
+		"i18n-allow.txt",
+		"process.exit(1)",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("check-i18n.ts is missing %q:\n%s", want, script)
+		}
+	}
+
+	// The allowlist ships explaining itself, and pre-absolves the placeholder
+	// copy in the +page.svelte the product owner is about to delete.
+	allow := read("web", "i18n-allow.txt")
+	if !strings.Contains(allow, "#") {
+		t.Errorf("i18n-allow.txt must explain what belongs in it:\n%s", allow)
+	}
+	page := read("web", "src", "routes", "+page.svelte")
+	for _, line := range strings.Split(allow, "\n") {
+		s := strings.TrimSpace(line)
+		if s == "" || strings.HasPrefix(s, "#") {
+			continue
+		}
+		// Whitespace-collapsed, exactly as the checker compares it.
+		if !strings.Contains(strings.Join(strings.Fields(page), " "), s) {
+			t.Errorf("i18n-allow.txt seeds %q, which the scaffolded +page.svelte does not contain:\n%s", s, page)
 		}
 	}
 }
@@ -556,6 +622,7 @@ func TestScaffoldCovenant(t *testing.T) {
 						t.Fatalf("bun install failed: %v\n%s", err, bunOut)
 					}
 					assertStyled(t, filepath.Join(dir, "web"))
+					assertI18nCovered(t, filepath.Join(dir, "web"))
 				}
 			}
 		})
@@ -628,6 +695,54 @@ func assertStyled(t *testing.T, web string) {
 		}
 	}
 	t.Logf("bun run build   %d bytes of css, design system utilities present", len(css))
+}
+
+// assertI18nCovered is the sibling gate, and the same shape of hole: catalog
+// parity (I18N0202) only audits keys that already EXIST, so a screen of
+// hardcoded English passes stack.Validate, passes svelte-check, and passes
+// every other assertion in this file. The scaffolded checker is what closes
+// that — and a gate nobody has watched fail is not a gate, so this runs it
+// clean on the scaffold and then plants a literal and demands red.
+func assertI18nCovered(t *testing.T, web string) {
+	t.Helper()
+	run := func() (string, error) {
+		cmd := exec.Command("bun", "scripts/check-i18n.ts")
+		cmd.Dir = web
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	// The generated catalogs exist by now (the bootstrap wrote them), so the
+	// gate is live rather than skipping.
+	if _, err := os.Stat(filepath.Join(web, "src", "lib", "i18n")); err != nil {
+		t.Fatalf("the i18n gate would skip: no generated catalogs to route through: %v", err)
+	}
+	// The scaffold ships clean — its own placeholder copy is allowlisted.
+	if out, err := run(); err != nil {
+		t.Fatalf("the scaffolded web/ must pass its own i18n gate: %v\n%s", err, out)
+	}
+	planted := filepath.Join(web, "src", "routes", "covenant")
+	if err := os.MkdirAll(planted, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(planted)
+	if err := os.WriteFile(filepath.Join(planted, "+page.svelte"),
+		[]byte("<h1>Untranslated heading</h1>\n<input placeholder=\"Type a name\" />\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run()
+	if err == nil {
+		t.Fatalf("hardcoded UI English passed the i18n gate:\n%s", out)
+	}
+	// The failure has to be mechanical to act on: where, what, and the shape.
+	for _, want := range []string{
+		"covenant/+page.svelte", "Untranslated heading", "Type a name",
+		"placeholder={t(", "i18n-allow.txt",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the i18n failure must name %q so the fix needs no thinking:\n%s", want, out)
+		}
+	}
+	t.Logf("bun scripts/check-i18n.ts   clean on the scaffold, red on a planted literal")
 }
 
 // treeOf lists every file under dir, slash-separated and sorted.

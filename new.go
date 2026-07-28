@@ -187,6 +187,11 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		// boots, runs, and kills — and skips with a note without bun/npx.
 		files["web/playwright.config.ts.tmpl"] = "web/playwright.config.ts"
 		files["web/e2e/golden.spec.ts.tmpl"] = "web/e2e/golden.spec.ts"
+		// The coverage half of the i18n gate, wired into `bun run check`:
+		// catalog parity audits the keys that exist, this catches the visible
+		// string that was never made a key. Its allowlist ships beside it.
+		files["web/scripts/check-i18n.ts.tmpl"] = "web/scripts/check-i18n.ts"
+		files["web/i18n-allow.txt.tmpl"] = "web/i18n-allow.txt"
 	}
 	if d.DB {
 		// Central persistence: ONE migration line, per-domain query files,

@@ -38,7 +38,7 @@ tasks:
       - go test ./...
 {{if .Web}}
   check:
-    desc: svelte-check — the frontend blast radius of a contract change
+    desc: svelte-check + i18n coverage — the frontend blast radius of a contract change
     dir: web
     cmds:
       - bun run check
