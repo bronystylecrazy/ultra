@@ -431,9 +431,10 @@ func devConfigAddr(path string) string {
 	return ""
 }
 
-// startWeb spawns the frontend dev server beside the API. bun when it is on
-// PATH (the paved road), npm otherwise. No web/package.json means no
-// frontend, and that is silent — a --bare product is not missing anything.
+// startWeb spawns the frontend dev server beside the API. bun is the whole
+// toolchain — there is no second runner to fall back to. No web/package.json
+// means no frontend, and that is silent — a --bare product is not missing
+// anything.
 //
 // The child is told where the API actually is (ULTRA_DEV_API), because the
 // vite proxy target is not a constant of the universe — see devAPIOrigin.
@@ -442,12 +443,9 @@ func (d *devLoop) startWeb() {
 	if _, err := os.Stat(filepath.Join(webDir, "package.json")); err != nil {
 		return
 	}
-	name, args := "npm", []string{"run", "dev"}
-	if _, err := exec.LookPath("bun"); err == nil {
-		name, args = "bun", []string{"dev"}
-	}
+	name, args := "bun", []string{"dev"}
 	if _, err := exec.LookPath(name); err != nil {
-		d.say(d.out, "·", "[web] skipped — neither bun nor npm is on PATH")
+		d.say(d.out, "·", "[web] skipped — bun is not on PATH")
 		return
 	}
 	p, err := startManaged(procSpec{

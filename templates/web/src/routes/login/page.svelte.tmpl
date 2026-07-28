@@ -11,7 +11,8 @@
      Replace it with YOUR login (branding, SSO, "forgot password", whatever
      the product needs) and keep +layout.ts pointing at wherever it lives.
      Unlike main.go's seeded user, this is not a block to delete: a product
-     that enforces auth needs SOME login page.
+     that enforces auth needs SOME login page. A PUBLIC app (docs, marketing)
+     deletes the marked guard block in +layout.ts and keeps this page.
 ──────────────────────────────────────────────────────────────────────── -->
 <script lang="ts">
 	import { goto } from '$app/navigation';

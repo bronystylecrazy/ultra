@@ -190,7 +190,7 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		// --ds connected, Tailwind and an empty @theme under --ds bare.
 		files["web/src/app.css.tmpl"] = "web/src/app.css"
 		if d.DS == dsConnected {
-			// The @connected scope resolves through depot, not npm.
+			// The @connected scope resolves through depot, not the public registry.
 			files["web/npmrc.tmpl"] = "web/.npmrc"
 		}
 		files["web/src/lib/api/gitkeep.tmpl"] = "web/src/lib/api/.gitkeep"
@@ -199,7 +199,7 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		files["web/src/lib/api/vite.proxy.json.tmpl"] = "web/src/lib/api/vite.proxy.json"
 		// The golden path: ONE browser spec, inside web/ so it resolves
 		// through the install the frontend already needs. `task e2e` builds,
-		// boots, runs, and kills — and skips with a note without bun/npx.
+		// boots, runs, and kills — and skips with a note without bun.
 		files["web/playwright.config.ts.tmpl"] = "web/playwright.config.ts"
 		files["web/e2e/golden.spec.ts.tmpl"] = "web/e2e/golden.spec.ts"
 		// The coverage half of the i18n gate, wired into `bun run check`:
@@ -471,7 +471,7 @@ replace directives in go.mod to build against a local checkout)
 		name, name)
 	if d.Web {
 		fmt.Fprint(out, "  task dev:web     # the SvelteKit dev server (bun install first)\n")
-		fmt.Fprint(out, "  task e2e         # the golden path in a browser (bun + npx playwright)\n")
+		fmt.Fprint(out, "  task e2e         # the golden path in a browser (bunx playwright)\n")
 		if d.DS == dsConnected {
 			fmt.Fprint(out, `
 web/ is wired to @connected/svelte-connected-design, and web/.npmrc points the

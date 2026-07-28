@@ -71,6 +71,14 @@ A dev build serves **no frontend** by design — a 404 at `/` means you wanted
 - **Frontend tooling is bun, exclusively.** `bun install`, `bun add`, `bunx`
   (never npx), `bun run` — no npm, node, yarn or pnpm anywhere, including
   scripts you generate.
+{{- if .Auth}}
+- **The login page and the redirect guard are separable.** `+layout.ts` holds
+  the whole guard — imports included — between its `auth guard` and
+  `end auth guard` markers. A PUBLIC app (docs, marketing) that still wires
+  `auth.Use()` deletes marker-to-marker and keeps `login/+page.svelte`. That
+  deletion is SANCTIONED, not a scaffold violation; everything else in that
+  file stays.
+{{- end}}
 - **Form controls never appear bare in a form** — they compose under `Field`
   (label, description, errors, a11y wiring). Bare controls are for toolbars and
   search boxes. The UI doctrine — the design system, its traps, and `Field`

@@ -84,10 +84,10 @@ tasks:
     cmds:
       - |
         # Degrades to a SKIP when the browser toolchain is absent: a machine
-        # without node must not go red for a tier it cannot run. `task verify`
+        # without bun must not go red for a tier it cannot run. `task verify`
         # deliberately does not call this — `task test` is the always-green set.
-        command -v bun >/dev/null 2>&1 || { echo "task e2e: skipped — bun not found (see web/e2e/golden.spec.ts)"; exit 0; }
-        command -v npx >/dev/null 2>&1 || { echo "task e2e: skipped — npx not found (node, then in web/: npm i -D @playwright/test)"; exit 0; }
+        # ONE guard: bun ships bunx, so there is no second runner to look for.
+        command -v bun >/dev/null 2>&1 || { echo "task e2e: skipped — bun not found (install bun, then in web/: bun add -d @playwright/test)"; exit 0; }
         set -e
         # This verb BUILDS; playwright.config.ts boots and kills the binary
         # (Playwright owns the server's lifetime, so a failed run never leaves
@@ -106,6 +106,6 @@ tasks:
         cd web
         # The browser build is a one-time ~100MB download, a no-op after that;
         # without it there is nothing to drive.
-        npx playwright install chromium
-        npx playwright test
+        bunx playwright install chromium
+        bunx playwright test
 {{end}}

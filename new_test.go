@@ -518,6 +518,180 @@ func TestAuthWebScaffoldHasADoor(t *testing.T) {
 	}
 }
 
+// bannedRunners are the frontend runners bun replaces. Word-bounded on
+// purpose: `.npmrc` and `@types/node` are legitimate and must not match.
+var bannedRunners = regexp.MustCompile(`(?i)\b(npx|npm|yarn|pnpm)\b`)
+
+// TestBunIsTheOnlyFrontendToolchain: bun ships bunx as a drop-in, so a scaffold
+// that checks for npx separately skips e2e on a bun-only box — or tells it to
+// run npm. Both halves of the surface are scanned: every rendered file, and
+// `ultra`'s own strings, because a product quoted `ultra new`'s closing
+// instructions verbatim in its public docs.
+func TestBunIsTheOnlyFrontendToolchain(t *testing.T) {
+	// The ONLY sanctioned mentions: the AGENTS.md law that names the runners in
+	// order to ban them, and the depot registry path inside .npmrc.
+	sanctioned := []string{
+		"(never npx), `bun run` — no npm, node, yarn or pnpm anywhere",
+		"depot.connectedtech.dev/npm/",
+	}
+	scan := func(t *testing.T, where, body string) {
+		t.Helper()
+		for i, line := range strings.Split(body, "\n") {
+			for _, ok := range sanctioned {
+				line = strings.ReplaceAll(line, ok, "")
+			}
+			if m := bannedRunners.FindString(line); m != "" {
+				t.Errorf("%s:%d reaches for %q — bun ships bunx, and a bun-only box has nothing else:\n\t%s",
+					where, i+1, m, strings.TrimSpace(line))
+			}
+		}
+	}
+
+	for _, c := range combos {
+		t.Run(c.name, func(t *testing.T) {
+			d := testData("speedcheck", c.data)
+			dir := filepath.Join(t.TempDir(), d.Name)
+			if err := scaffold(dir, d); err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range treeOf(t, dir) {
+				b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(f)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				scan(t, f, string(b))
+			}
+			if !d.Web {
+				return
+			}
+			// ...and the positive half: a negative-only assertion also passes
+			// when the e2e task disappears entirely.
+			b, err := os.ReadFile(filepath.Join(dir, "Taskfile.yml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := string(b)
+			for _, want := range []string{
+				"command -v bun ", "bunx playwright install chromium", "bunx playwright test",
+				"bun add -d @playwright/test",
+			} {
+				if !strings.Contains(task, want) {
+					t.Errorf("the e2e task must use %q:\n%s", want, task)
+				}
+			}
+			// ONE guard, not two: a second `command -v` is the npx check coming
+			// back under another name.
+			if n := strings.Count(task, "command -v "); n != 1 {
+				t.Errorf("the e2e task must guard on bun alone, found %d toolchain guards:\n%s", n, task)
+			}
+		})
+	}
+
+	// What the binary itself prints, and the comments describing it. Test files
+	// are excluded: this one names the runners in order to forbid them.
+	names, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scan(t, name, string(b))
+	}
+}
+
+// TestAuthGuardIsADeletableBlock: a public site (docs, marketing) that still
+// wires auth.Use() wants /login to exist WITHOUT a whole-SPA redirect in front
+// of it, and used to have to reverse-engineer +layout.ts to get there. So the
+// guard ships as ONE marked block, imports included, that says on its own first
+// line that deleting it is allowed.
+//
+// Render-level rather than `bun run check`: the covenant installs node_modules
+// only on the --ds connected leg (and skips it without depot auth), so a
+// svelte-check of the deleted variant would buy a second full install for a
+// file with no imports left in it. `bun build` below is the cheap stand-in —
+// it proves the remainder still parses.
+func TestAuthGuardIsADeletableBlock(t *testing.T) {
+	d := testData("speedcheck", scaffoldData{Web: true, Auth: true, DS: dsBare})
+	dir := filepath.Join(t.TempDir(), d.Name)
+	if err := scaffold(dir, d); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "web", "src", "routes", "+layout.ts")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := string(b)
+	if !strings.Contains(layout, "public app: delete this block, keep /login") {
+		t.Errorf("the marker must sanction its own deletion where the reader already is:\n%s", layout)
+	}
+
+	lines := strings.Split(layout, "\n")
+	from, to := -1, -1
+	for i, l := range lines {
+		switch {
+		case strings.Contains(l, "─── end auth guard ───"):
+			to = i
+		case strings.Contains(l, "─── auth guard ───") && from < 0:
+			from = i
+		}
+	}
+	if from < 0 || to <= from {
+		t.Fatalf("the guard must be one marked block:\n%s", layout)
+	}
+	// Imports INSIDE the block, or deleting it leaves dangling ones.
+	block := strings.Join(lines[from:to+1], "\n")
+	for _, want := range []string{"import { redirect }", "import { session }", "redirect(307, '/login')"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("the block must carry the whole guard, missing %q:\n%s", want, block)
+		}
+	}
+
+	rest := strings.Join(append(append([]string{}, lines[:from]...), lines[to+1:]...), "\n")
+	for _, want := range []string{"export const ssr = false;", "export const prerender = false;"} {
+		if !strings.Contains(rest, want) {
+			t.Errorf("deleting the guard must leave SPA mode behind, missing %q:\n%s", want, rest)
+		}
+	}
+	for _, dangling := range []string{"import", "redirect", "session", "LayoutLoad", "export const load"} {
+		if strings.Contains(rest, dangling) {
+			t.Errorf("deleting the guard left %q behind:\n%s", dangling, rest)
+		}
+	}
+	// The page survives the deletion — that is the whole point of the seam.
+	if _, err := os.Stat(filepath.Join(dir, "web", "src", "routes", "login", "+page.svelte")); err != nil {
+		t.Fatalf("the login page must outlive the guard: %v", err)
+	}
+	// The scaffolded AGENTS.md says the deletion is allowed, so an agent
+	// reading the tree does not treat it as damage and put it back.
+	agents, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"auth guard", "SANCTIONED"} {
+		if !strings.Contains(string(agents), want) {
+			t.Errorf("AGENTS.md must sanction the deletion, missing %q:\n%s", want, agents)
+		}
+	}
+
+	if _, err := exec.LookPath("bun"); err != nil {
+		t.Skipf("no bun, so the deleted variant was never parsed: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(rest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("bun", "build", path, "--target", "browser", "--outdir", t.TempDir())
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("the guard-less +layout.ts does not parse: %v\n%s", err, out)
+	}
+}
+
 // TestScaffoldVersionTracksRelease keeps scaffoldVersion honest: it is the
 // version a new product requires, so it must be the version the repo itself
 // releases. contrib/go.mod's requirement on the kernel is bumped by the

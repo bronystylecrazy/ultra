@@ -4,6 +4,9 @@
 export const ssr = false;
 export const prerender = false;
 {{if .Auth}}
+// ─── auth guard ─── public app: delete this block, keep /login ───────────
+// The imports ride INSIDE the markers: delete marker-to-marker and what is
+// left is a complete, valid +layout.ts with no dangling references.
 import { redirect } from '@sveltejs/kit';
 import { session } from '$lib/api/auth.svelte';
 import type { LayoutLoad } from './$types';
@@ -28,4 +31,5 @@ export const load: LayoutLoad = async ({ url }) => {
 		redirect(307, '/login');
 	}
 };
+// ─── end auth guard ──────────────────────────────────────────────────────
 {{end -}}
