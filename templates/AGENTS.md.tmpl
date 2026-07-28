@@ -89,10 +89,16 @@ A dev build serves **no frontend** by design — a 404 at `/` means you wanted
 
 ## The full doctrine
 
+**Run `ultra skill install` first, before anything else.** It vendors
 `.claude/skills/ultrastack/` — the framework's own SKILL.md and `references/`,
-vendored at the EXACT version this product's `go.mod` pins. If that directory is
-absent, run `ultra skill install`; if it disagrees with the pin,
-`ultra skill install --check` says so.
+at the EXACT version this product's `go.mod` pins. A fresh `ultra new` scaffold
+arrives WITHOUT that directory — always — so this is a required first step, not
+a fallback for when something is missing. Once it is there,
+`ultra skill install --check` reports any drift from the pin.
+
+`.mcp.json` at the product root wires the same doctrine as tools: every Claude
+Code session started in this directory picks it up (approve it once, the first
+time you run `claude` here).
 
 `ultra contrib list` prints this product's capabilities: the presets it wires
 (with the spelling it used) and the ones it has not.

@@ -95,6 +95,11 @@ type sqlcSettings struct {
 type sqlcCodegen struct {
 	Out    string
 	Plugin string
+	// Options is the codegen entry's `options:` block, which sqlc hands over
+	// as JSON. It is the ONLY channel a process plugin has to the product's
+	// type configuration — Settings carries no overrides of its own, and
+	// `gen.go.overrides` never crosses the wire.
+	Options []byte
 }
 
 type sqlcCatalog struct {
@@ -174,6 +179,8 @@ func decodeSettings(b []byte, s *sqlcSettings) error {
 					s.Codegen.Out = string(val)
 				case 2:
 					s.Codegen.Plugin = string(val)
+				case 3:
+					s.Codegen.Options = val
 				}
 				return nil
 			})

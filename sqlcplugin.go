@@ -63,7 +63,8 @@ func runPlugin(in io.Reader, out, errW io.Writer) int {
 		fmt.Fprintln(errW, "ultra plugin:", err)
 		return 1
 	}
-	tables := analyze(req, readSchemaFacts(dir, req.Settings.Schema))
+	tables := analyze(req, readSchemaFacts(dir, req.Settings.Schema),
+		typeTable(req.Settings.Codegen.Options, errW))
 	if len(tables) == 0 {
 		fmt.Fprintln(errW, "ultra plugin: the catalog has no tables yet — nothing to generate")
 		out.Write(encodeResponse(nil))

@@ -49,6 +49,7 @@ type tableData struct {
 	UpdateSet string // the UPDATE assignment list
 	UpdateID  string // the WHERE placeholders for UPDATE
 	Migration string // the file the DDL landed in, for the report
+	StoreIn   string // the feature file that ALREADY declares Store, if any
 }
 
 func cmdNewTable(args []string, out, errW io.Writer) int {
@@ -152,6 +153,14 @@ func cmdNewTable(args []string, out, errW io.Writer) int {
 		return 1
 	}
 	d.GenImport = modulePathOf(string(gomod)) + "/internal/db/gen"
+
+	if !noStore {
+		if err := planStore(dir, &d); err != nil {
+			fmt.Fprintln(errW, err)
+			failVerdict(errW, "new table "+name, err.Error())
+			return 1
+		}
+	}
 
 	written, err := writeTable(dir, &d, migration, noStore)
 	if err != nil {
@@ -271,6 +280,33 @@ func tableAlreadyThere(name string, dirs ...string) string {
 	return found
 }
 
+// storeDeclRe finds the one declaration a second table in the same feature
+// must not repeat.
+var storeDeclRe = regexp.MustCompile(`(?m)^type Store struct\b`)
+
+// planStore settles what the feature needs BEFORE anything is written: a whole
+// Store, or methods on the one it already has. Every refusal reachable here
+// belongs here — a collision discovered halfway through writeTable leaves a
+// migration and five queries on disk in front of a build that fails.
+func planStore(dir string, d *tableData) error {
+	feat := filepath.Join(dir, "internal", "app", d.Feature)
+	entries, _ := os.ReadDir(feat)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(feat, e.Name())); err == nil && storeDeclRe.Match(b) {
+			d.StoreIn = e.Name()
+			break
+		}
+	}
+	store := filepath.Join("internal", "app", d.Feature, d.Singular+".go")
+	if _, err := os.Stat(filepath.Join(dir, store)); err == nil {
+		return fmt.Errorf("%s already exists — refusing to overwrite, and nothing was written", store)
+	}
+	return nil
+}
+
 // writeTable renders the migration, the queries and (unless --no-store) the
 // feature's store, and returns the paths it wrote.
 func writeTable(dir string, d *tableData, migration string, noStore bool) ([]string, error) {
@@ -314,11 +350,16 @@ func writeTable(dir string, d *tableData, migration string, noStore bool) ([]str
 		}
 		written = append(written, filepath.Join(feat, d.Feature+".go"), filepath.Join(feat, "errors.go"))
 	}
-	store := filepath.Join(feat, d.Singular+".go")
-	if _, err := os.Stat(filepath.Join(dir, store)); err == nil {
-		return nil, fmt.Errorf("%s already exists — refusing to overwrite", store)
+	// A feature holds ONE Store. The first table brings the type and the
+	// constructor; every table after it brings methods on that same Store,
+	// named for the table they are about — planStore decided which this is,
+	// before a byte was written.
+	tmpl := "table/store.go.tmpl"
+	if d.StoreIn != "" {
+		tmpl = "table/store_methods.go.tmpl"
 	}
-	if err := renderAll(dir, map[string]string{"table/store.go.tmpl": store}, d); err != nil {
+	store := filepath.Join(feat, d.Singular+".go")
+	if err := renderAll(dir, map[string]string{tmpl: store}, d); err != nil {
 		return nil, err
 	}
 	written = append(written, store)
@@ -449,6 +490,14 @@ func printTableNextSteps(out io.Writer, d *tableData, noStore, generated bool) {
 	if noStore {
 		fmt.Fprintf(out, "\nNo store was written (--no-store). The typed querier is gen.%sError,\ngen.%sCursor and (*gen.Queries).List%sPage.\n",
 			d.Export, d.Export, d.Export)
+		return
+	}
+	if d.StoreIn != "" {
+		fmt.Fprintf(out, "\n%s already has a Store (%s), so %s.go adds methods on it —\nCreate%s, %sPage and Remove%s. Both lines are already wired.\n",
+			d.Feature, d.StoreIn, d.Singular, d.Model, d.Export, d.Model)
+		if !generated {
+			fmt.Fprintf(out, "\ninternal/db/gen is stale until `sqlc generate` runs, so they will not\ncompile yet.\n")
+		}
 		return
 	}
 	fmt.Fprintf(out, `

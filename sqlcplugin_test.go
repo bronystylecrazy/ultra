@@ -3,8 +3,12 @@ package main
 import (
 	"bytes"
 	"flag"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -22,9 +26,13 @@ var updateGolden = flag.Bool("update", false, "rewrite the sqlc plugin's golden 
 // real request does — the plugin must ignore it.
 const fixtureRequest = "codegen_request.bin"
 
-func loadFixture(t *testing.T) (dir string, req []byte) {
+// loadFixture returns one captured product: testdata/sqlc/product is the plain
+// one, testdata/sqlc/overrides the same capture from a sqlc.yaml carrying
+// migrate.md's uuid/timestamptz overrides in the ultra codegen entry's
+// `options:` — the only channel those reach a process plugin through.
+func loadFixture(t *testing.T, name string) (dir string, req []byte) {
 	t.Helper()
-	dir, err := filepath.Abs(filepath.Join("testdata", "sqlc", "product"))
+	dir, err := filepath.Abs(filepath.Join("testdata", "sqlc", name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +48,7 @@ func loadFixture(t *testing.T) (dir string, req []byte) {
 // plugin-sdk-go fails HERE with a readable diff rather than downstream as
 // mysteriously empty generated code.
 func TestDecodeRequest(t *testing.T) {
-	_, raw := loadFixture(t)
+	_, raw := loadFixture(t, "product")
 	req, err := decodeRequest(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -128,8 +136,91 @@ func TestDecodeRequest(t *testing.T) {
 // TestPluginGolden runs the whole plugin over the captured request and
 // compares every emitted byte.
 func TestPluginGolden(t *testing.T) {
-	dir, req := loadFixture(t)
-	golden, err := filepath.Abs(filepath.Join("testdata", "sqlc", "golden"))
+	files, names := goldenRun(t, "product", "golden")
+	if files == nil {
+		return // -update
+	}
+
+	// The file SET is part of the contract: shapes has no factory (a box
+	// column cannot be defaulted) and comments' factory must exist, because
+	// its foreign key resolves through notes'.
+	want := []string{
+		"ultra.go", "ultra_comments.go", "ultra_notes.go", "ultra_shapes.go",
+		"factory/ultra.go", "factory/comments.go", "factory/notes.go",
+	}
+	got := strings.Join(names, " ")
+	for _, w := range want {
+		if !strings.Contains(got, w) {
+			t.Errorf("the plugin emitted %v, missing %s", names, w)
+		}
+	}
+	if strings.Contains(got, "factory/shapes.go") {
+		t.Error("shapes has a box column and must get NO factory")
+	}
+}
+
+// TestPluginGoldenOverrides is the bug the playground shipped into: a product
+// takes migrate.md's advice, sqlc emits uuid.UUID and time.Time, and a factory
+// that still filled pgtype.Timestamptz would not compile against the params
+// struct sitting beside it. The overrides ride the codegen entry's `options:`,
+// which is the only thing about types a process plugin is sent.
+func TestPluginGoldenOverrides(t *testing.T) {
+	files, _ := goldenRun(t, "overrides", "golden-overrides")
+	if files == nil {
+		return // -update
+	}
+	var factory string
+	for _, f := range files {
+		if f.name == "factory/ducks.go" {
+			factory = string(f.body)
+		}
+	}
+	if factory == "" {
+		t.Fatal("the overridden product got no ducks factory")
+	}
+	for _, want := range []string{
+		"CreatedAt: at(n),", // time.Time, not pgtype.Timestamptz
+		`OwnerID:   uuid.UUID(uuidAt("ducks", n).Bytes)`, // uuid.UUID, not pgtype.UUID
+		`"github.com/google/uuid"`,                       // and the import that spells it
+		"Subject:   fmt.Sprintf(",                        // an un-overridden column is untouched
+	} {
+		if !strings.Contains(factory, want) {
+			t.Errorf("factory/ducks.go is missing %q:\n%s", want, factory)
+		}
+	}
+	if strings.Contains(factory, "pgtype") {
+		t.Errorf("nothing in this product is a pgtype any more:\n%s", factory)
+	}
+	// The foreign key is a uuid.UUID now, so the child factory must convert
+	// the deterministic value rather than hand over a pgtype.UUID.
+	for _, f := range files {
+		if f.name != "factory/quacks.go" {
+			continue
+		}
+		if !strings.Contains(string(f.body), "DuckID:    Duck(t, db).ID,") {
+			t.Errorf("the fk fill did not survive the override:\n%s", f.body)
+		}
+	}
+	// The cursor half must NOT move: sqlc.narg params are nullable, migrate.md
+	// puts overrides on the NOT NULL types only, and ListDucksParams still
+	// takes pgtype there.
+	for _, f := range files {
+		if f.name != "ultra_ducks.go" {
+			continue
+		}
+		if !strings.Contains(string(f.body), "arg.AfterAt = pgtype.Timestamptz{Time: after.At, Valid: true}") {
+			t.Errorf("the keyset cursor must stay pgtype:\n%s", f.body)
+		}
+	}
+}
+
+// goldenRun drives the plugin over one captured fixture and compares (or, with
+// -update, rewrites) every emitted byte. It returns nil under -update, because
+// there is nothing left for the caller to assert against.
+func goldenRun(t *testing.T, fixture, goldenDir string) ([]outFile, []string) {
+	t.Helper()
+	dir, req := loadFixture(t, fixture)
+	golden, err := filepath.Abs(filepath.Join("testdata", "sqlc", goldenDir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +243,7 @@ func TestPluginGolden(t *testing.T) {
 	var names []string
 	for _, f := range files {
 		names = append(names, f.name)
+		assertImportsUsed(t, f)
 		path := filepath.Join(golden, strings.ReplaceAll(f.name, "/", "__"))
 		if *updateGolden {
 			if err := os.WriteFile(path, f.body, 0o644); err != nil {
@@ -170,25 +262,9 @@ func TestPluginGolden(t *testing.T) {
 	}
 	if *updateGolden {
 		t.Log("golden files rewritten:", strings.Join(names, ", "))
-		return
+		return nil, nil
 	}
-
-	// The file SET is part of the contract: shapes has no factory (a box
-	// column cannot be defaulted) and comments' factory must exist, because
-	// its foreign key resolves through notes'.
-	want := []string{
-		"ultra.go", "ultra_comments.go", "ultra_notes.go", "ultra_shapes.go",
-		"factory/ultra.go", "factory/comments.go", "factory/notes.go",
-	}
-	got := strings.Join(names, " ")
-	for _, w := range want {
-		if !strings.Contains(got, w) {
-			t.Errorf("the plugin emitted %v, missing %s", names, w)
-		}
-	}
-	if strings.Contains(got, "factory/shapes.go") {
-		t.Error("shapes has a box column and must get NO factory")
-	}
+	return files, names
 }
 
 // TestPluginRefusesGarbage keeps a malformed request from being read as an
@@ -284,6 +360,43 @@ drop table comments;
 	}
 	if got := facts.fks["comments"]["author_id"]; got != "users" {
 		t.Errorf("comments.author_id references %q, want users", got)
+	}
+}
+
+// assertImportsUsed is the check gofmt does not do. The plugin computes a
+// factory's imports from the literals it decided to write, and an override can
+// retire the last pgtype in a file as easily as it can introduce a uuid — an
+// import left behind is a generated package that does not compile, which is
+// exactly the failure this whole fix is about.
+func assertImportsUsed(t *testing.T, f outFile) {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), f.name, f.body, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("%s does not parse: %v", f.name, err)
+	}
+	used := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok {
+			if id, ok := sel.X.(*ast.Ident); ok {
+				used[id.Name] = true
+			}
+		}
+		return true
+	})
+	for _, imp := range file.Imports {
+		path := strings.Trim(imp.Path.Value, `"`)
+		parts := strings.Split(path, "/")
+		name := parts[len(parts)-1]
+		// A major-version suffix is not the package name: pgx/v5 is pgx.
+		if len(parts) > 1 && regexp.MustCompile(`^v\d+$`).MatchString(name) {
+			name = parts[len(parts)-2]
+		}
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		if !used[name] {
+			t.Errorf("%s imports %s and never uses it:\n%s", f.name, path, f.body)
+		}
 	}
 }
 

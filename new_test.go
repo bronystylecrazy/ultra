@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,7 +55,7 @@ func TestScaffoldValidatesInput(t *testing.T) {
 // never comes back.
 func TestFlagsShapeTheTree(t *testing.T) {
 	core := []string{
-		".gitignore", "AGENTS.md", "Taskfile.yml", "config.toml", "contract_test.go",
+		".gitignore", ".mcp.json", "AGENTS.md", "Taskfile.yml", "config.toml", "contract_test.go",
 		"go.mod", "internal/app/app.go", "main.go", "main_test.go",
 		"messages/en.toml", "messages/th.toml",
 	}
@@ -188,13 +189,21 @@ func TestDesignSystemShapesTheFrontend(t *testing.T) {
 
 	connected := render(dsConnected)
 	for _, want := range []struct{ file, s string }{
-		{"web/package.json", `"@connected/svelte-connected-design": "^0.2.0"`},
+		// Caret-pinned, not pinned to a minor: bumping the design system is a
+		// one-line template edit and must not be a test edit as well.
+		{"web/package.json", `"@connected/svelte-connected-design": "^`},
 		{"web/package.json", `"tailwindcss": "^4`},
 		{"web/package.json", `"@tailwindcss/vite": "^4`},
 		// The trailing slash is not cosmetic: without it bun mis-joins the
 		// scope path and depot answers with an HTML page.
 		{"web/.npmrc", "@connected:registry=https://depot.connectedtech.dev/npm/\n"},
 		{"web/src/app.css", `@import "@connected/tailwindcss-connected-design/themes/default.css";`},
+		// app.css is at web/src, node_modules at web/ — ONE level up. Two
+		// resolves to a directory that does not exist, Tailwind reports
+		// nothing, and every DS component ships unstyled while the whole
+		// toolchain stays green. assertStyled proves the consequence when
+		// depot is reachable; this proves the path always.
+		{"web/src/app.css", `@source "../node_modules/@connected/svelte-connected-design/dist";`},
 		{"web/src/routes/+layout.svelte", `import { Toaster } from '@connected/svelte-connected-design/toast';`},
 		{"web/src/routes/+layout.svelte", "<Toaster />"},
 		{"web/vite.config.ts", "plugins: [tailwindcss(), sveltekit()]"},
@@ -429,6 +438,26 @@ func TestScaffoldCovenant(t *testing.T) {
 			t.Logf("ultra new speedcheck %s\nspeedcheck/\n%s",
 				strings.Join(c.args, " "), strings.Join(treeOf(t, dir), "\n"))
 
+			// The MCP wiring is a config file a tool parses, so parse it: a
+			// malformed .mcp.json is silently ignored by Claude Code, and
+			// "the tools were never there" is not a failure a session reports.
+			var mcp struct {
+				Servers map[string]struct {
+					Command string   `json:"command"`
+					Args    []string `json:"args"`
+				} `json:"mcpServers"`
+			}
+			raw, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(raw, &mcp); err != nil {
+				t.Fatalf(".mcp.json is not valid JSON: %v\n%s", err, raw)
+			}
+			if got := mcp.Servers["ultra"]; got.Command != "ultra" || len(got.Args) != 1 || got.Args[0] != "mcp" {
+				t.Errorf(".mcp.json must run `ultra mcp`, got %+v", got)
+			}
+
 			sh := func(name string, args ...string) {
 				t.Helper()
 				cmd := exec.Command(name, args...)
@@ -526,6 +555,7 @@ func TestScaffoldCovenant(t *testing.T) {
 					default:
 						t.Fatalf("bun install failed: %v\n%s", err, bunOut)
 					}
+					assertStyled(t, filepath.Join(dir, "web"))
 				}
 			}
 		})
@@ -559,6 +589,45 @@ func depotOutOfReach(out []byte) bool {
 		}
 	}
 	return false
+}
+
+// assertStyled is the unstyled-but-green gate, and the only check in this file
+// that reads bytes a browser would. `bun install`, `bun run build`, `bun run
+// check` and `task test` all stay green while the design system's own
+// utilities are missing from the built css, because the classes that vanish
+// are the ones written INSIDE DS components and never in product code — one
+// wrong `../` in app.css's @source is enough. So the covenant greps the build:
+// a utility only the DS writes internally must be in there.
+func assertStyled(t *testing.T, web string) {
+	t.Helper()
+	build := exec.Command("bun", "run", "build")
+	build.Dir = web
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("bun run build failed: %v\n%s", err, out)
+	}
+	var css []byte
+	err := filepath.WalkDir(filepath.Join(web, "build"), func(p string, e os.DirEntry, err error) error {
+		if err != nil || e.IsDir() || !strings.HasSuffix(p, ".css") {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		css = append(css, b...)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(css) == 0 {
+		t.Fatal("bun run build emitted no css at all")
+	}
+	for _, want := range []string{".rounded-Pill", ".bg-brand-solid"} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("the built css (%d bytes) has no %s rule — @source is not reaching "+
+				"the design system's dist, so every component renders unstyled while every check stays green",
+				len(css), want)
+		}
+	}
+	t.Logf("bun run build   %d bytes of css, design system utilities present", len(css))
 }
 
 // treeOf lists every file under dir, slash-separated and sorted.

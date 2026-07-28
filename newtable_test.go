@@ -164,6 +164,67 @@ func TestNewTableStore(t *testing.T) {
 	}
 }
 
+// TestNewTableSecondStore is the redeclaration trap: a second table aimed at a
+// feature that already has a Store must add METHODS, not a second type.
+func TestNewTableSecondStore(t *testing.T) {
+	// The fixture module has no dependencies, so the Store an earlier table
+	// would have left stands in as the smallest thing that still compiles.
+	// What the real one looks like is TestNewTableStore's job.
+	dir := tableFixture(t)
+	if err := os.MkdirAll(filepath.Join(dir, "internal/app/ducks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal/app/ducks/duck.go"),
+		[]byte("package ducks\n\ntype Store struct{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errW := runNewTable(t, dir, "quacks", "loudness integer not null", "--feature", "ducks")
+	if code != 0 {
+		t.Fatalf("a second table in one feature must land: %d\n%s\n%s", code, out, errW)
+	}
+	quack := read(t, dir, "internal/app/ducks/quack.go")
+	for _, want := range []string{
+		"package ducks",
+		"func (s *Store) CreateQuack(ctx context.Context, arg gen.CreateQuackParams) (gen.Quack, error)",
+		"func (s *Store) QuacksPage(ctx context.Context, after *gen.QuacksCursor, size int) ([]gen.Quack, bool, error)",
+		"func (s *Store) RemoveQuack(ctx context.Context, id pgtype.UUID) error",
+	} {
+		if !strings.Contains(quack, want) {
+			t.Errorf("the methods-only file is missing %q:\n%s", want, quack)
+		}
+	}
+	for _, never := range []string{"type Store struct", "func NewStore", "di.Clock"} {
+		if strings.Contains(quack, never) {
+			t.Errorf("the second table must not redeclare %q:\n%s", never, quack)
+		}
+	}
+	// The store lives in duck.go and stays alone there.
+	if n := strings.Count(read(t, dir, "internal/app/ducks/duck.go"), "type Store struct"); n != 1 {
+		t.Errorf("duck.go declares Store %d times, want 1", n)
+	}
+	if !strings.Contains(out, "already has a Store (duck.go)") {
+		t.Errorf("the report must say the store was extended, not created:\n%s", out)
+	}
+
+	// The noun-file check runs before ANY write, so a refusal leaves no
+	// orphan migration in front of a build that cannot pass.
+	if err := os.WriteFile(filepath.Join(dir, "internal/app/ducks/pond.go"),
+		[]byte("package ducks\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadDir(filepath.Join(dir, "internal/db/migrations"))
+	code, _, errW = runNewTable(t, dir, "ponds", "depth integer not null", "--feature", "ducks")
+	if code == 0 {
+		t.Fatal("a noun file that already exists must be refused")
+	}
+	if !strings.Contains(errW, "nothing was written") {
+		t.Errorf("the refusal must say nothing landed: %q", errW)
+	}
+	if now, _ := os.ReadDir(filepath.Join(dir, "internal/db/migrations")); len(now) != len(before) {
+		t.Errorf("the refusal wrote a migration anyway: %d, want %d", len(now), len(before))
+	}
+}
+
 // TestNewTableAppendsMigration is the parent-and-child case: one deploy step,
 // and a Down that drops in reverse.
 func TestNewTableAppendsMigration(t *testing.T) {
@@ -385,6 +446,18 @@ func TestNewTableCovenant(t *testing.T) {
 			t.Skipf("the generated gen.DB.Atomic awaits contrib/pg.Atomic, which is not in this checkout yet:\n%s", compiled)
 		}
 		t.Fatalf("the product does not build with its new table: %v\n%s", err, compiled)
+	}
+
+	// A SECOND table into the SAME feature: one Store, methods named for the
+	// table. This is the redeclaration the playground hit, and only a real
+	// build proves it is gone.
+	if code, out, errW := runNewTable(t, dir, "quacks", "loudness integer not null", "--feature", "notes", "--owned"); code != 0 {
+		t.Fatalf("a second table in one feature must land: %d\n%s\n%s", code, out, errW)
+	}
+	build = exec.Command("go", "build", "./...")
+	build.Dir = dir
+	if compiled, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("two tables in one feature must still build:\n%s", compiled)
 	}
 
 	// Re-running must refuse: the table is already defined, and the SQL on

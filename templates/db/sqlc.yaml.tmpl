@@ -21,6 +21,18 @@ sql:
     codegen:
       - plugin: ultra
         out: "gen"
+        # Type overrides must be stated HERE TOO, identically. sqlc resolves
+        # `gen.go.overrides` inside its own Go codegen and never sends them to
+        # a plugin — the CodeGenRequest carries this `options:` block and
+        # nothing else about types. Leave the two lists in sync or the row
+        # factories under gen/factory fill pgtype where sqlc emitted
+        # uuid.UUID, and the generated package stops compiling.
+        #options:
+        #  overrides:
+        #    - db_type: "uuid"
+        #      go_type: "github.com/google/uuid.UUID"
+        #    - db_type: "timestamptz"
+        #      go_type: "time.Time"
     gen:
       go:
         package: "gen"
@@ -30,3 +42,9 @@ sql:
         # Overrides (uuid → uuid.UUID, timestamptz → time.Time) go on the
         # NON-NULL types only: `nullable: true` overrides make sqlc v1.31.1
         # emit duplicate imports. Wrap sqlc.narg() params at the call site.
+        # Uncomment the twin block above at the same time.
+        #overrides:
+        #  - db_type: "uuid"
+        #    go_type: "github.com/google/uuid.UUID"
+        #  - db_type: "timestamptz"
+        #    go_type: "time.Time"

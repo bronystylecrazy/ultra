@@ -38,33 +38,39 @@ type pgType struct {
 	goType string
 	// lit renders the factory value; seq is the counter variable in scope.
 	lit func(table, col, seq string) string
+	// needs is what lit's text refers to. Imports are computed from the
+	// literals a table actually uses, because an override can retire the last
+	// pgtype in a factory and an unused import does not compile.
+	needs []string
 }
 
+const pgtypePkg = "github.com/jackc/pgx/v5/pgtype"
+
 var pgTypes = map[string]pgType{
-	"text":        {"string", strLit},
-	"varchar":     {"string", strLit},
-	"bpchar":      {"string", strLit},
-	"char":        {"string", strLit},
-	"name":        {"string", strLit},
-	"citext":      {"string", strLit},
-	"bool":        {"bool", func(_, _, _ string) string { return "false" }},
-	"boolean":     {"bool", func(_, _, _ string) string { return "false" }},
-	"int2":        {"int16", func(_, _, seq string) string { return "int16(" + seq + ")" }},
-	"smallint":    {"int16", func(_, _, seq string) string { return "int16(" + seq + ")" }},
-	"int4":        {"int32", func(_, _, seq string) string { return "int32(" + seq + ")" }},
-	"integer":     {"int32", func(_, _, seq string) string { return "int32(" + seq + ")" }},
-	"int8":        {"int64", func(_, _, seq string) string { return seq }},
-	"bigint":      {"int64", func(_, _, seq string) string { return seq }},
-	"float4":      {"float32", func(_, _, seq string) string { return "float32(" + seq + ")" }},
-	"real":        {"float32", func(_, _, seq string) string { return "float32(" + seq + ")" }},
-	"float8":      {"float64", func(_, _, seq string) string { return "float64(" + seq + ")" }},
-	"uuid":        {"pgtype.UUID", func(table, _, seq string) string { return fmt.Sprintf("uuidAt(%q, %s)", table, seq) }},
-	"timestamptz": {"pgtype.Timestamptz", tsLit},
-	"timestamp":   {"pgtype.Timestamp", func(_, _, seq string) string { return "pgtype.Timestamp{Time: at(" + seq + "), Valid: true}" }},
-	"date":        {"pgtype.Date", func(_, _, seq string) string { return "pgtype.Date{Time: at(" + seq + "), Valid: true}" }},
-	"json":        {"[]byte", func(_, _, _ string) string { return `[]byte("{}")` }},
-	"jsonb":       {"[]byte", func(_, _, _ string) string { return `[]byte("{}")` }},
-	"bytea":       {"[]byte", func(table, col, seq string) string { return "[]byte(" + strLit(table, col, seq) + ")" }},
+	"text":        {"string", strLit, []string{"fmt"}},
+	"varchar":     {"string", strLit, []string{"fmt"}},
+	"bpchar":      {"string", strLit, []string{"fmt"}},
+	"char":        {"string", strLit, []string{"fmt"}},
+	"name":        {"string", strLit, []string{"fmt"}},
+	"citext":      {"string", strLit, []string{"fmt"}},
+	"bool":        {"bool", func(_, _, _ string) string { return "false" }, nil},
+	"boolean":     {"bool", func(_, _, _ string) string { return "false" }, nil},
+	"int2":        {"int16", func(_, _, seq string) string { return "int16(" + seq + ")" }, nil},
+	"smallint":    {"int16", func(_, _, seq string) string { return "int16(" + seq + ")" }, nil},
+	"int4":        {"int32", func(_, _, seq string) string { return "int32(" + seq + ")" }, nil},
+	"integer":     {"int32", func(_, _, seq string) string { return "int32(" + seq + ")" }, nil},
+	"int8":        {"int64", func(_, _, seq string) string { return seq }, nil},
+	"bigint":      {"int64", func(_, _, seq string) string { return seq }, nil},
+	"float4":      {"float32", func(_, _, seq string) string { return "float32(" + seq + ")" }, nil},
+	"real":        {"float32", func(_, _, seq string) string { return "float32(" + seq + ")" }, nil},
+	"float8":      {"float64", func(_, _, seq string) string { return "float64(" + seq + ")" }, nil},
+	"uuid":        {"pgtype.UUID", func(table, _, seq string) string { return fmt.Sprintf("uuidAt(%q, %s)", table, seq) }, nil},
+	"timestamptz": {"pgtype.Timestamptz", tsLit, []string{pgtypePkg}},
+	"timestamp":   {"pgtype.Timestamp", func(_, _, seq string) string { return "pgtype.Timestamp{Time: at(" + seq + "), Valid: true}" }, []string{pgtypePkg}},
+	"date":        {"pgtype.Date", func(_, _, seq string) string { return "pgtype.Date{Time: at(" + seq + "), Valid: true}" }, []string{pgtypePkg}},
+	"json":        {"[]byte", func(_, _, _ string) string { return `[]byte("{}")` }, nil},
+	"jsonb":       {"[]byte", func(_, _, _ string) string { return `[]byte("{}")` }, nil},
+	"bytea":       {"[]byte", func(table, col, seq string) string { return "[]byte(" + strLit(table, col, seq) + ")" }, []string{"fmt"}},
 }
 
 func strLit(table, col, seq string) string {
@@ -88,6 +94,9 @@ type tableGen struct {
 	pages   []pageGen
 	create  *sqlcQuery        // the insert this table's factory drives
 	fkByCol map[string]string // column -> the parent table a factory must create first
+	// types is the product's resolved pg → Go table, shared by every table in
+	// one run: pgTypes with this sqlc.yaml's overrides folded in.
+	types map[string]pgType
 	// noFactory, when set, is the reason — reported in ultra.go rather than
 	// swallowed, so "where is my factory" is never a mystery.
 	noFactory string
@@ -117,7 +126,7 @@ type ownerArg struct {
 
 // analyze turns a decoded request plus the schema facts scraped from the
 // migrations into the per-table plan the emitters render.
-func analyze(req *sqlcRequest, facts schemaFacts) []tableGen {
+func analyze(req *sqlcRequest, facts schemaFacts, types map[string]pgType) []tableGen {
 	schema := req.Catalog.DefaultSchema
 	if schema == "" {
 		schema = "public"
@@ -134,6 +143,7 @@ func analyze(req *sqlcRequest, facts schemaFacts) []tableGen {
 				export:  goName(t.Rel.Name),
 				cols:    t.Columns,
 				fkByCol: facts.fks[t.Rel.Name],
+				types:   types,
 			}
 			for _, u := range facts.uniques[g.name] {
 				g.uniques = append(g.uniques, uniqueGen{
@@ -159,7 +169,7 @@ func analyze(req *sqlcRequest, facts schemaFacts) []tableGen {
 			}
 			continue
 		}
-		p, table := detectPage(q, byName)
+		p, table := detectPage(q, byName, types)
 		if p != nil {
 			table.pages = append(table.pages, *p)
 		}
@@ -188,7 +198,7 @@ var tupleRe = regexp.MustCompile(`\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*[<>]\s*\(`)
 // table: a :many with a nullable (timestamptz, uuid) narg pair compared as a
 // tuple against the columns it orders by, plus an integer limit. Shape, not
 // naming — a query that merely mentions a cursor gets nothing.
-func detectPage(q *sqlcQuery, byName map[string]*tableGen) (*pageGen, *tableGen) {
+func detectPage(q *sqlcQuery, byName map[string]*tableGen, types map[string]pgType) (*pageGen, *tableGen) {
 	if q.Cmd != ":many" || len(q.Columns) == 0 {
 		return nil, nil
 	}
@@ -234,7 +244,7 @@ func detectPage(q *sqlcQuery, byName map[string]*tableGen) (*pageGen, *tableGen)
 		limitField: goName(limit.Name),
 	}
 	for _, c := range owners {
-		t, ok := pgTypes[baseType(c.Type.Name)]
+		t, ok := types[baseType(c.Type.Name)]
 		if !ok || !c.NotNull || c.IsArray {
 			return nil, nil // an owner we cannot type is not a page we can write
 		}
@@ -287,7 +297,7 @@ func factoryBlocker(t *tableGen, byName map[string]*tableGen) string {
 		if c.IsArray {
 			return fmt.Sprintf("column %s is an array — no defensible default", c.Name)
 		}
-		if _, ok := pgTypes[baseType(c.Type.Name)]; !ok {
+		if _, ok := t.types[baseType(c.Type.Name)]; !ok {
 			return fmt.Sprintf("column %s is %s, which has no deterministic default", c.Name, c.Type.Name)
 		}
 	}
@@ -548,11 +558,36 @@ func (q *Queries) %sPage(ctx context.Context`, p.cursor, p.cursor, p.query, p.qu
 }
 
 func emitFactory(t *tableGen, genImport string) string {
+	// The column values come first: which imports the file needs is decided
+	// by the literals it ends up holding, and an override can retire the last
+	// pgtype in a factory as easily as it can introduce a uuid.
+	var fills strings.Builder
+	needs := map[string]bool{}
+	for _, p := range t.create.Params {
+		c := p.Column
+		if parent := t.fkByCol[c.Name]; parent != "" {
+			fmt.Fprintf(&fills, "\t\t%s: %s(t, db).ID,\n", goName(c.Name), modelName(parent))
+			continue
+		}
+		typ := t.types[baseType(c.Type.Name)]
+		fmt.Fprintf(&fills, "\t\t%s: %s,\n", goName(c.Name), typ.lit(t.name, c.Name, "n"))
+		for _, imp := range typ.needs {
+			needs[imp] = true
+		}
+	}
+	std, ext := []string{"context", "testing"}, []string{genImport}
+	for imp := range needs {
+		if strings.Contains(imp, ".") {
+			ext = append(ext, imp)
+		} else {
+			std = append(std, imp)
+		}
+	}
+
 	var b strings.Builder
 	b.WriteString(genHeader)
 	b.WriteString("package factory\n\n")
-	writeImports(&b, []string{"context", "fmt", "testing"},
-		[]string{genImport, "github.com/jackc/pgx/v5/pgtype"})
+	writeImports(&b, std, ext)
 
 	fmt.Fprintf(&b, `// %s inserts one %s row. Every column the insert demands is filled
 // deterministically; the mutators carry the value the test is ABOUT and run
@@ -563,15 +598,7 @@ func %s(t testing.TB, db gen.DBTX, mut ...func(*gen.%sParams)) gen.%s {
 	arg := gen.%sParams{
 `, t.model, t.name, t.model, t.create.Name, t.model, t.name, t.create.Name)
 
-	for _, p := range t.create.Params {
-		c := p.Column
-		if parent := t.fkByCol[c.Name]; parent != "" {
-			fmt.Fprintf(&b, "\t\t%s: %s(t, db).ID,\n", goName(c.Name), modelName(parent))
-			continue
-		}
-		fmt.Fprintf(&b, "\t\t%s: %s,\n", goName(c.Name),
-			pgTypes[baseType(c.Type.Name)].lit(t.name, c.Name, "n"))
-	}
+	b.WriteString(fills.String())
 	fmt.Fprintf(&b, `	}
 	for _, m := range mut {
 		m(&arg)

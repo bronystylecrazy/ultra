@@ -140,6 +140,10 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		// The cross-tool agent entry point. A ROUTER, not the manual: the
 		// loop, the verbs, the laws, and where the vendored doctrine lives.
 		"AGENTS.md.tmpl": "AGENTS.md",
+		// The same entry point for tools rather than prose: every Claude Code
+		// session started in this product gets `ultra`'s MCP server without
+		// anyone adding it by hand.
+		"mcp.json.tmpl": ".mcp.json",
 		// The drift gate: the committed contract artifacts are regenerated
 		// and diffed on every `go test`. The artifacts themselves are NOT
 		// scaffolded — nothing here can run the binary it just wrote, so the
@@ -440,7 +444,10 @@ replace directives in go.mod to build against a local checkout)
 		return 1
 	}
 
-	fmt.Fprintf(out, "\n%s is ready:\n  cd %s\n  task test        # the covenant: wiring + boot, then the contract gate\n  task dev:api     # serve on :8080 (a dev build serves NO frontend — by design)\n",
+	// The skill line is FIRST and unconditional: the doctrine is generated,
+	// never scaffolded, so every new product needs this before an agent can
+	// read a word of it. .mcp.json is already on disk and needs nothing.
+	fmt.Fprintf(out, "\n%s is ready:\n  cd %s\n  ultra skill install  # vendors the doctrine into .claude/skills — do this first\n  task test        # the covenant: wiring + boot, then the contract gate\n  task dev:api     # serve on :8080 (a dev build serves NO frontend — by design)\n",
 		name, name)
 	if d.Web {
 		fmt.Fprint(out, "  task dev:web     # the SvelteKit dev server (bun install first)\n")
