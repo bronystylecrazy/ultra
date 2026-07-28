@@ -28,6 +28,7 @@ Available Commands:
   explain    the mini-lesson behind one diagnostic code
   fleet      many products at once, from above
   help       help about any command
+  init       bring an EXISTING product up to the current doctrine
   mcp        Model Context Protocol server over stdio
   new        scaffold a product, or a feature inside one
   report     file a field report where the fleet can read it

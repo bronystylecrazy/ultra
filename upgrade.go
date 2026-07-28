@@ -231,6 +231,14 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 			"             target — not the tag. Drop the replace to verify the release.\n",
 			col.yellow("note"), r)
 	}
+	// A product born before these files existed upgrades perfectly and stays
+	// un-agented, silently, forever. A bump is when somebody is already
+	// looking at what the framework learned since — so say it here, once.
+	if missing := missingDoctrine(dir); len(missing) > 0 {
+		fmt.Fprintf(out, "\n  %s       no %s — `ultra init` adds what the scaffold has\n"+
+			"             learned since this product was born.\n",
+			col.yellow("note"), strings.Join(missing, " and "))
+	}
 
 	if dry {
 		fmt.Fprintf(out, "\n  --dry      nothing was written. would run:\n")

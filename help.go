@@ -289,6 +289,27 @@ looks like today; it recommends nothing.`,
 				},
 			},
 			{
+				name:  "init",
+				args:  "[dir] [--force <file>] [--dry]",
+				short: "bring an EXISTING product up to the current doctrine",
+				long: `Retrofit a product that already exists.
+
+ultra new emits the doctrine files at birth and never again, so a product
+scaffolded by an older release — or ported, or hand-made — silently lacks
+whatever the scaffold learned since. init renders exactly the ones that
+are ABSENT, from the same templates, with the capabilities read off the
+tree (web/, internal/db, the wired presets, the design system in
+web/package.json) rather than typed.
+
+A file that exists is NEVER touched — it reports "kept (exists)" and
+moves on — so the second run writes nothing. --force <file> regenerates
+one named file and prints the diff before it does.`,
+				flags: []flagDoc{
+					{"--force <file>", "regenerate one file, diff first"},
+					{"--dry", "show the plan and write nothing"},
+				},
+			},
+			{
 				name:  "mcp",
 				short: "Model Context Protocol server over stdio",
 				long: `Serve the graph intelligence as agent tools, over stdio.

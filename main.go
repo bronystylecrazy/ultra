@@ -118,6 +118,9 @@ func run(args []string, out, errW io.Writer) int {
 	case "new":
 		return cmdNew(rest, out, errW)
 
+	case "init":
+		return cmdInit(rest, out, errW)
+
 	case "dev":
 		return cmdDev(rest, out, errW)
 
