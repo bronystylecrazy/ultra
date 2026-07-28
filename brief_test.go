@@ -169,6 +169,111 @@ func TestBriefBareProduct(t *testing.T) {
 	}
 }
 
+// briefStubFixture is a port half-done: four operations, two of them still the
+// 501 stubs `ultra new --from` scaffolded. The x-error-codes shape is the one
+// contrib/api really emits — the declared codes and the stub code share the
+// operation-level list, so brief must key on the `.not_implemented` suffix and
+// not merely on "this op declares codes".
+func briefStubFixture(t *testing.T) string {
+	t.Helper()
+	return writeProduct(t, "package main\n\nfunc main() {}\n", map[string]string{
+		"openapi.json": `{
+  "openapi": "3.1.0",
+  "info": {"title": "depotreg", "version": "0.1.0"},
+  "paths": {
+    "/depots": {
+      "get": {"operationId": "listDepots",
+        "x-error-codes": ["depots.list.not_implemented"],
+        "responses": {"200": {"description": "ok"}}},
+      "post": {"operationId": "createDepot",
+        "x-error-codes": ["depots.conflict"],
+        "responses": {"200": {"description": "ok"}}}
+    },
+    "/depots/{depotId}": {
+      "get": {"operationId": "getDepot",
+        "x-error-codes": ["depots.get.not_implemented", "depots.not_found"],
+        "responses": {"200": {"description": "ok"}}},
+      "delete": {"operationId": "deleteDepot",
+        "x-error-codes": ["depots.not_found"],
+        "responses": {"204": {"description": "gone"}}}
+    }
+  }
+}
+`,
+	})
+}
+
+// The stub list IS the plan for a long port: brief counts what is left so a
+// successor session resumes from the contract instead of a todo file.
+func TestBriefCountsStubs(t *testing.T) {
+	dir := briefStubFixture(t)
+	code, out, errOut := runCLI(t, "brief", dir)
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errOut)
+	}
+	for _, want := range []string{
+		"OPERATIONS (4)",
+		"STUBS (2 of 4 remaining)",
+		"depots.list.not_implemented",
+		"depots.get.not_implemented",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("brief is missing %q:\n%s", want, out)
+		}
+	}
+	// A ported operation is GONE from the section — that disappearance is the
+	// only progress signal the workflow has.
+	if strings.Contains(out, "createDepot") && strings.Count(out, "createDepot") > 1 {
+		t.Errorf("a ported op must appear in OPERATIONS only:\n%s", out)
+	}
+	if !strings.Contains(errOut, "2 stubs") {
+		t.Errorf("the verdict must carry the remaining count: %q", errOut)
+	}
+}
+
+// Zero stubs is silence, not "STUBS (0)": a finished product must not carry a
+// section reminding it of nothing.
+func TestBriefOmitsStubsWhenNone(t *testing.T) {
+	dir := briefFixture(t)
+	_, out, errOut := runCLI(t, "brief", dir)
+	if strings.Contains(out, "STUBS") {
+		t.Errorf("a stub-free product renders no STUBS section:\n%s", out)
+	}
+	if strings.Contains(errOut, "stub") {
+		t.Errorf("the verdict must not mention stubs: %q", errOut)
+	}
+}
+
+func TestBriefStubsJSON(t *testing.T) {
+	dir := briefStubFixture(t)
+	code, out, _ := runCLI(t, "brief", dir, "--json")
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	var p briefPack
+	if err := json.Unmarshal([]byte(out), &p); err != nil {
+		t.Fatalf("--json does not parse: %v\n%s", err, out)
+	}
+	if p.Stubs != 2 {
+		t.Errorf("stubs = %d, want 2", p.Stubs)
+	}
+	got := map[string]string{}
+	for _, op := range p.Operations {
+		got[op.ID] = op.Stub
+	}
+	want := map[string]string{
+		"listDepots":  "depots.list.not_implemented",
+		"getDepot":    "depots.get.not_implemented",
+		"createDepot": "",
+		"deleteDepot": "",
+	}
+	for id, code := range want {
+		if got[id] != code {
+			t.Errorf("%s stub = %q, want %q", id, got[id], code)
+		}
+	}
+}
+
 func TestBriefNotAModule(t *testing.T) {
 	code, _, errOut := runCLI(t, "brief", t.TempDir())
 	if code != 2 || !strings.Contains(errOut, "no go.mod") {

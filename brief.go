@@ -9,9 +9,10 @@ package main
 // of tokens and four round trips, and three of them answer in prose written
 // for a human reading one screen. brief answers all five in one compact,
 // grep-friendly page: name and module, the framework pin, the canonical root
-// shape, the wired presets one line each, the operation table, the config
-// sections and who binds them, the state of the committed artifacts, and the
-// last commits that moved the contract.
+// shape, the wired presets one line each, the operation table, which of those
+// operations are still 501 stubs, the config sections and who binds them, the
+// state of the committed artifacts, and the last commits that moved the
+// contract.
 //
 // Every section reuses a core that already exists (scanWired, loadRoot,
 // modPins, readSpec, goRunProduct, git) — brief composes, it never re-derives.
@@ -54,6 +55,7 @@ type briefPack struct {
 	APITitle   string    `json:"apiTitle,omitempty"`
 	APIVersion string    `json:"apiVersion,omitempty"`
 	Operations []briefOp `json:"operations"`
+	Stubs      int       `json:"stubs"` // how many of them are still 501 stubs
 
 	Config        []briefSection `json:"config"`
 	ConfigMissing []string       `json:"configMissing,omitempty"`
@@ -81,6 +83,9 @@ type briefOp struct {
 	Method string `json:"method"`
 	Path   string `json:"path"`
 	ID     string `json:"id,omitempty"`
+	// Stub is the `<op>.not_implemented` code this operation still declares —
+	// empty once the port lands and the const is deleted. See stubCode.
+	Stub string `json:"stub,omitempty"`
 }
 
 // briefSection is one [section] in config.toml and the wiring that reads it —
@@ -140,9 +145,13 @@ func cmdBrief(args []string, out, errW io.Writer) int {
 	} else {
 		renderBrief(out, p)
 	}
-	verdict(errW, "brief", fmt.Sprintf("%s — %s, %s, %s",
+	detail := fmt.Sprintf("%s — %s, %s, %s",
 		p.Product, count(len(p.Wired), "preset"), count(len(p.Operations), "operation"),
-		count(len(p.Config), "config section")))
+		count(len(p.Config), "config section"))
+	if p.Stubs > 0 {
+		detail += ", " + count(p.Stubs, "stub")
+	}
+	verdict(errW, "brief", detail)
 	return 0
 }
 
@@ -240,9 +249,29 @@ func briefOperations(p *briefPack, dir string) {
 	p.Operations = []briefOp{}
 	for _, item := range spec.Paths {
 		for _, op := range item.Ops {
-			p.Operations = append(p.Operations, briefOp{op.Method, op.Path, op.OperationID})
+			stub := stubCode(op)
+			if stub != "" {
+				p.Stubs++
+			}
+			p.Operations = append(p.Operations, briefOp{op.Method, op.Path, op.OperationID, stub})
 		}
 	}
+}
+
+// stubCode returns the not-implemented code an operation still declares, or ""
+// once it is ported. `ultra new --from` scaffolds every handler as a 501 and
+// declares the code it fails with — `api.Codes(depots.CodeGetNotImplemented)`,
+// which rides the contract as the operation's x-error-codes entry
+// `<feature>.<op>.not_implemented`. Deleting the const when the port lands is
+// what retires the stub, so the committed document counts the remaining work
+// with no side file to keep in sync.
+func stubCode(op *oaOp) string {
+	for _, c := range op.ErrorCodes {
+		if strings.HasSuffix(c, ".not_implemented") {
+			return c
+		}
+	}
+	return ""
 }
 
 // briefConfig joins config.toml against the wiring: every section present,
@@ -401,6 +430,30 @@ func renderBrief(out io.Writer, p *briefPack) {
 	t.flush()
 	if n := len(p.Operations) - briefOpLimit; n > 0 {
 		fmt.Fprintf(out, "  … and %s — ultra brief --json for the whole table\n", count(n, "more"))
+	}
+
+	// The stub list IS the plan for a long port: the contract is whole, the
+	// handlers are not, and this section is the remaining work in commit order
+	// — no todo file, no successor session guessing where the last one stopped.
+	if p.Stubs > 0 {
+		fmt.Fprintf(out, "\nSTUBS (%d of %d remaining) — these handlers answer 501; fill one op at a time\n",
+			p.Stubs, len(p.Operations))
+		t = newTable(out)
+		shown := 0
+		for _, op := range p.Operations {
+			if op.Stub == "" {
+				continue
+			}
+			if shown == briefOpLimit {
+				break
+			}
+			shown++
+			t.row("  "+op.Method, op.Path, op.Stub)
+		}
+		t.flush()
+		if n := p.Stubs - briefOpLimit; n > 0 {
+			fmt.Fprintf(out, "  … and %s — ultra brief --json for the whole list\n", count(n, "more"))
+		}
 	}
 
 	fmt.Fprintf(out, "\nCONFIG (%d) — config.toml\n", len(p.Config))

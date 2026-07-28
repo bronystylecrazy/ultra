@@ -64,8 +64,13 @@ func ultraTree() *command {
 
 Name and module, the framework pin, the canonical root, the wired presets
 with the entry spelling each used, the operation table from openapi.json,
-the config sections and which wiring reads each, the state of the
-committed artifacts, and the last commits that moved the contract.
+which of those operations are still 501 stubs, the config sections and
+which wiring reads each, the state of the committed artifacts, and the
+last commits that moved the contract.
+
+The STUBS section is the plan for a long port: a handler scaffolded by
+--from declares <feature>.<op>.not_implemented, so the committed contract
+counts the work left and any successor session resumes from it.
 
 It replaces the five commands that answer those separately, and it is
 built for a context window: compact, grep-friendly, --json for the whole
