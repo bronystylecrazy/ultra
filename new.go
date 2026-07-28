@@ -26,7 +26,7 @@ var templates embed.FS
 // `ultra` installed from a tag reports the same version through
 // debug.ReadBuildInfo, which wins over this constant; `--version` wins over
 // both.
-const scaffoldVersion = "v0.9.25"
+const scaffoldVersion = "v0.9.26"
 
 // scaffoldGoVersion is the go directive for generated products. It must be
 // at least the framework's own, or the toolchain refuses the dependency.
