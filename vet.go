@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -85,6 +86,17 @@ func (t *vetTail) take() {
 	t.trailer = rest
 }
 
+// speaksAnalyzerProtocol reports whether a command is an analyzer this CLI can
+// drive. It asks for -V=full, the handshake every go/analysis tool answers, and
+// that is the check rather than a version comparison because a locally built
+// analyzer reports "devel" — a string no CLI version can be compared against.
+// What matters is not which version it is but whether it understands the flags
+// we are about to pass.
+func speaksAnalyzerProtocol(name string, prefix ...string) bool {
+	out, err := exec.Command(name, append(prefix, "-V=full")...).Output()
+	return err == nil && bytes.Contains(out, []byte("version"))
+}
+
 // runVet delegates to the analyzer: an installed ultravet binary if
 // present, else `go run <module>@latest` (which needs GOPRIVATE + git
 // auth while the repo is private). dir, when set, is the working directory
@@ -129,10 +141,28 @@ func runAnalyzer(dir string, args []string, out, errW io.Writer) (code int, ran 
 	}
 
 	if path, err := exec.LookPath("ultravet"); err == nil {
-		return run(path, args...), true
+		if speaksAnalyzerProtocol(path) {
+			return run(path, args...), true
+		}
+		// Do not hand our flags to a binary that cannot parse them. An
+		// ultravet from before -format existed treats "-format=json" as a
+		// package pattern, so the user got `malformed import path` from the go
+		// toolchain, or — worse, with no flags at all — a green "no findings"
+		// from an analyzer years behind the CLI.
+		fmt.Fprintf(errW, `ultra vet: the ultravet on PATH is too old for this CLI (%s).
+
+  it does not answer -V=full, so it predates the flags this CLI passes.
+  GOPRIVATE=github.com/bronystylecrazy/* go install %s@latest
+
+falling back to the pinned analyzer for this run.
+`, path, analyzerModule)
 	}
-	if code := run("go", append([]string{"run", analyzerModule + "@latest"}, args...)...); code >= 0 {
-		return code, true
+	// Probe the fallback the same way. `go run` passes the program's exit code
+	// through, so a module it cannot resolve exits 1 exactly like an analyzer
+	// with findings — and reporting THAT as findings is the same lie in the
+	// other direction. -V=full answers only if the analyzer actually built.
+	if speaksAnalyzerProtocol("go", "run", analyzerModule+"@latest") {
+		return run("go", append([]string{"run", analyzerModule + "@latest"}, args...)...), true
 	}
 	fmt.Fprintf(errW, `ultra vet: the analyzer is not installed and could not be fetched.
 

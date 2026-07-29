@@ -278,7 +278,7 @@ func TestExplainVerdicts(t *testing.T) {
 func TestVetVerdicts(t *testing.T) {
 	bin := t.TempDir()
 	script := func(body string) {
-		if err := os.WriteFile(filepath.Join(bin, "ultravet"), []byte(body), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(bin, "ultravet"), []byte(vetStub(body)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -314,7 +314,7 @@ func TestVetVerdicts(t *testing.T) {
 func TestVetMachineOutputStaysPure(t *testing.T) {
 	bin := t.TempDir()
 	const doc = `[{"code":"DI0001","severity":"error","message":"no provider","file":"main.go","line":9}]`
-	os.WriteFile(filepath.Join(bin, "ultravet"), []byte("#!/bin/sh\ncat <<'EOF'\n"+doc+"\nEOF\nexit 1\n"), 0o755)
+	os.WriteFile(filepath.Join(bin, "ultravet"), []byte(vetStub("#!/bin/sh\ncat <<'EOF'\n"+doc+"\nEOF\nexit 1\n")), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	_, out, errOut := runCLI(t, "vet", "--json")
@@ -332,7 +332,7 @@ func TestVetMachineOutputStaysPure(t *testing.T) {
 	// GitHub annotations go to STDOUT and are parsed line by line by the
 	// runner — one stray line and an annotation lands on the wrong file.
 	const ann = "::error file=main.go,line=9,title=DI0001::no provider"
-	os.WriteFile(filepath.Join(bin, "ultravet"), []byte("#!/bin/sh\necho '"+ann+"'\nexit 1\n"), 0o755)
+	os.WriteFile(filepath.Join(bin, "ultravet"), []byte(vetStub("#!/bin/sh\necho '"+ann+"'\nexit 1\n")), 0o755)
 	_, out, errOut = runCLI(t, "vet", "--format", "github")
 	if strings.TrimRight(out, "\n") != ann {
 		t.Errorf("annotation stream was polluted:\n%q", out)
