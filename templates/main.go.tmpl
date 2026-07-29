@@ -24,7 +24,9 @@ import (
 	"github.com/bronystylecrazy/ultrastack/contrib/pg"
 {{- end}}
 	"github.com/bronystylecrazy/ultrastack/contrib/ultra"
+{{- if .Auth}}
 	"github.com/bronystylecrazy/ultrastack/di"
+{{- end}}
 
 	"{{.Module}}/internal/app"
 )
@@ -58,63 +60,61 @@ var migrations embed.FS
 // tests compose it with overrides (di.TestApp(t, App, di.Swap[...](fake))),
 // and e2e drives the built binary. Never reassign it: ultravet resolves the
 // var only while it has a single writer.
-var App = di.Options(
-	ultra.New( // the paved road: config + zerolog + Fiber on [http] +
-	               // /healthz, /ops/*, /metrics + traces/metrics (dormant
-	               // until [otel] or env configures an exporter)
-		// The typed edge. Contracts are declared once, in Go, with logical
-		// paths; OpenAPI, the TS client, the error codes and the dev proxy
-		// are all derived. `go run . client --out web/src/lib/api`.
-		api.Use(api.Info{Title: "{{.Name}}", Version: version}),
-		api.Base("/v1"), // everything else belongs to the frontend
-		api.Docs(),      // /docs, /docs/openapi.json
+var App = ultra.New( // the paved road: config + zerolog + Fiber on [http] +
+	// /healthz, /ops/*, /metrics + traces/metrics (dormant until [otel] or
+	// env configures an exporter)
+	// The typed edge. Contracts are declared once, in Go, with logical
+	// paths; OpenAPI, the TS client, the error codes and the dev proxy
+	// are all derived. `go run . client --out web/src/lib/api`.
+	api.Use(api.Info{Title: "{{.Name}}", Version: version}),
+	api.Base("/v1"), // everything else belongs to the frontend
+	api.Docs(),      // /docs, /docs/openapi.json
 
-		// Words at the edge: problem messages render from the catalogs in the
-		// request's locale; codes stay the contract. The client generator
-		// derives typed catalogs (web/src/lib/i18n) from the same files.
-		i18n.Use(),                       // [i18n]: locales + default
-		i18n.Resolve,                     // ?lang > cookie > Accept-Language > default{{if .Auth}} — before Protect so the user-preference rung sees the identity{{end}}
-		i18n.Files(messages, "messages"), // the committed <locale>.toml catalogs
+	// Words at the edge: problem messages render from the catalogs in the
+	// request's locale; codes stay the contract. The client generator
+	// derives typed catalogs (web/src/lib/i18n) from the same files.
+	i18n.Use(),                       // [i18n]: locales + default
+	i18n.Resolve,                     // ?lang > cookie > Accept-Language > default{{if .Auth}} — before Protect so the user-preference rung sees the identity{{end}}
+	i18n.Files(messages, "messages"), // the committed <locale>.toml catalogs
 {{if .DB}}
-		pg.Use(),      // [postgres]: the pool, dialed in Start
-		migrate.Use(), // goose, applied before anything serves
-		migrate.Files("app", migrations, "internal/db/migrations"), // "app": ONE central domain timeline; identifier-safe by construction
+	pg.Use(),      // [postgres]: the pool, dialed in Start
+	migrate.Use(), // goose, applied before anything serves
+	migrate.Files("app", migrations, "internal/db/migrations"), // "app": ONE central domain timeline; identifier-safe by construction
 {{end}}
 {{- if .Auth}}
-		// Secure by default: every op declares api.Require or api.Public and
-		// forgetting is a boot error. That covers OPS too — with Protect
-		// wired, /healthz and /ops/* answer 401 to anonymous callers.
-		auth.Use(),      // [auth]; in-memory stores until authpg.Use()
-		auth.JWT(),         // Bearer validation; revocation lands next request
-		auth.TokenRoutes,   // POST /auth/token (+/refresh) — API clients
-		auth.LoginRoutes,   // POST /auth/login|logout — browsers (cookie)
-		auth.SessionRoutes, // self-service session list/revoke
-		auth.MeRoute,       // GET /auth/me: identity + effective permissions —
-		                    // makes ./app client emit the reactive session
-		                    // store (auth.svelte.ts), so screens can can()
-		auth.Protect,       // the enforcement itself
+	// Secure by default: every op declares api.Require or api.Public and
+	// forgetting is a boot error. That covers OPS too — with Protect
+	// wired, /healthz and /ops/* answer 401 to anonymous callers.
+	auth.Use(),      // [auth]; in-memory stores until authpg.Use()
+	auth.JWT(),         // Bearer validation; revocation lands next request
+	auth.TokenRoutes,   // POST /auth/token (+/refresh) — API clients
+	auth.LoginRoutes,   // POST /auth/login|logout — browsers (cookie)
+	auth.SessionRoutes, // self-service session list/revoke
+	auth.MeRoute,       // GET /auth/me: identity + effective permissions —
+	                    // makes ./app client emit the reactive session
+	                    // store (auth.svelte.ts), so screens can can()
+	auth.Protect,       // the enforcement itself
 
-		// ───────────────────────── DEV ONLY — DELETE ME ─────────────────────────
-		// ONE seeded user, so the login routes above actually work the minute
-		// this boots: {{.DevUser}} / {{.DevPassword}} (holds "admin", which
-		// [auth.roles] grants "*"). Without it the in-memory store is EMPTY and
-		// every sign-in is "invalid credentials" forever — boot warns about
-		// exactly that, and this line is why it does not.
-		//
-		// Replace with durable users before anyone else touches this:
-		//     authpg.Stores()   // users + API keys in Postgres
-		// and delete this block. A password in source is a password in git.
-		di.Bind[auth.UserStore](func() *auth.MemUsers {
-			return auth.NewMemUsers(auth.NewUser("{{.DevUser}}", "{{.DevPassword}}", "admin"))
-		}),
-		// ────────────────────────────────────────────────────────────────────────
+	// ───────────────────────── DEV ONLY — DELETE ME ─────────────────────────
+	// ONE seeded user, so the login routes above actually work the minute
+	// this boots: {{.DevUser}} / {{.DevPassword}} (holds "admin", which
+	// [auth.roles] grants "*"). Without it the in-memory store is EMPTY and
+	// every sign-in is "invalid credentials" forever — boot warns about
+	// exactly that, and this line is why it does not.
+	//
+	// Replace with durable users before anyone else touches this:
+	//     authpg.Stores()   // users + API keys in Postgres
+	// and delete this block. A password in source is a password in git.
+	di.Bind[auth.UserStore](func() *auth.MemUsers {
+		return auth.NewMemUsers(auth.NewUser("{{.DevUser}}", "{{.DevPassword}}", "admin"))
+	}),
+	// ────────────────────────────────────────────────────────────────────────
 {{end}}
 {{- if .Web}}
-		SPA(), // dev: nothing at "/"; -tags embedspa: the built web/build
+	SPA(), // dev: nothing at "/"; -tags embedspa: the built web/build
 {{end}}
-		// The product. app.go is the ONLY file that knows the feature list.
-		app.Modules(),
-	),
+	// The product. app.go is the ONLY file that knows the feature list.
+	app.Modules(),
 )
 
 // Growth is one registration each, right here (see the framework SKILL.md

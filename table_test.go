@@ -110,6 +110,58 @@ func TestFleetStatusTableAligns(t *testing.T) {
 	}
 }
 
+// A product that cannot answer `graph --json` reports the failure in its OWN
+// voice: coloured, multi-line, arbitrarily long. That text lands in the
+// FINGERPRINT cell, which is padded — so row() panicked and `ultra fleet
+// status` crashed for any fleet holding one unbootable product (the common
+// case: a product whose database is absent). The old fixture used a plain
+// one-line error and never reached it.
+func TestFleetStatusSurvivesAProductsOwnDiagnostic(t *testing.T) {
+	realDiagnostic := "\x1b[31merror[PG0103]\x1b[0m: postgres has no database named \"acme\"\n" +
+		"  \x1b[2mnote:\x1b[0m  cause: dial tcp [::1]:5432: connect: connection refused\n" +
+		"  \x1b[2mmore:\x1b[0m  ./app explain PG0103"
+	repos := []fleetProduct{
+		{Dir: "a", Module: "github.com/acme/tiny", Version: "v0.9.1", Fingerprint: "abc123def456", Components: 7},
+		{Dir: "b", Module: longModule, Version: "v0.9.30", Err: plainLine(realDiagnostic)},
+	}
+	noProbe(t)
+	var out, errW bytes.Buffer
+	fleetStatus(repos, t.TempDir(), false, false, &out, &errW) // panicked before the fix
+
+	body := out.String()
+	if strings.Contains(body, "\x1b[") {
+		t.Errorf("a padded cell carries ANSI:\n%q", body)
+	}
+	if strings.Count(body, "\n") != 3 { // header + two rows
+		t.Errorf("the diagnostic's newlines survived into the table:\n%s", body)
+	}
+	if !strings.Contains(body, "error: error[PG0103]") {
+		t.Errorf("the cell lost the diagnostic it exists to report:\n%s", body)
+	}
+	assertAligned(t, "fleet status (a product's own diagnostic)", body)
+}
+
+// plainLine is what callers use to obey row()'s rule, so it owes them exactly
+// two things: no escapes, and one line.
+func TestPlainLine(t *testing.T) {
+	for _, c := range []struct{ name, in, want string }{
+		{"strips a colour pair", "\x1b[31mDRIFT\x1b[0m", "DRIFT"},
+		{"drops the sequence, not just the ESC", "\x1b[2mnote\x1b[0m: x", "note: x"},
+		{"flattens newlines", "line one\nline two", "line one line two"},
+		{"collapses the runs it leaves", "a\n\n  \tb", "a b"},
+		{"keeps multi-byte characters", "✗ boot \x1b[31mfailed\x1b[0m", "✗ boot failed"},
+		{"survives a bare ESC", "a\x1bb", "ab"},
+		{"survives a truncated sequence", "a\x1b[3", "a"},
+		{"leaves plain text alone", "graph --json timed out", "graph --json timed out"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := plainLine(c.in); got != c.want {
+				t.Errorf("plainLine(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
 // Colour must not move a column: ANSI lands only in the last cell, where
 // tabwriter does no padding.
 func TestFleetStatusStaysAlignedWithColour(t *testing.T) {

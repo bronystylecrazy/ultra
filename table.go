@@ -23,6 +23,33 @@ import (
 // else. tabwriter does not pad a trailing cell (it is not part of any aligned
 // column), so colour there cannot move anything. row() enforces it.
 
+// plainLine reduces text a padded cell cannot hold — a product's OWN
+// diagnostic, which is coloured and multi-line — to text it can. It lives here
+// rather than at its caller because it serves row()'s invariant: row panics on
+// ANSI rather than shear a table, and this is how a caller obeys that rule.
+func plainLine(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b { // ESC: drop the whole CSI sequence, not just the ESC
+			j := i + 1
+			if j < len(s) && s[j] == '[' {
+				for j++; j < len(s) && (s[j] < '@' || s[j] > '~'); j++ {
+				}
+				if j < len(s) {
+					j++ // the final byte closes the sequence
+				}
+			}
+			i = j
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	// Fields splits on spaces, tabs and newlines at once, so one pass flattens
+	// a multi-line diagnostic and collapses the runs it leaves behind.
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
 // table is one aligned block: rows in, columns out.
 type table struct{ tw *tabwriter.Writer }
 

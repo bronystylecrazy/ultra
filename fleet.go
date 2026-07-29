@@ -148,7 +148,10 @@ var fingerprintOf = fingerprint
 func fingerprint(p *fleetProduct) {
 	g, err := fetchGraph(p.Dir)
 	if err != nil {
-		p.Err = err.Error()
+		// A product answers a failed graph with its OWN diagnostic: coloured,
+		// several lines, and destined for a padded table cell. Flatten it here
+		// so every consumer — the table and --json alike — gets plain text.
+		p.Err = plainLine(err.Error())
 		return
 	}
 	p.Fingerprint = g.Fingerprint
@@ -277,7 +280,14 @@ func fleetStatus(repos []fleetProduct, root string, save, jsonOut bool, out, err
 			}
 			fp := short(p.Fingerprint)
 			if p.Err != "" {
-				fp = "error: " + p.Err
+				// A fingerprint column is 16 characters wide; a diagnostic is
+				// not. Clip on runes — a flattened diagnostic still carries
+				// multi-byte characters, and half a rune is not a character.
+				e := p.Err
+				if r := []rune(e); len(r) > 48 {
+					e = string(r[:45]) + "..."
+				}
+				fp = "error: " + e
 			}
 			drift := p.Drift
 			if strings.HasPrefix(drift, "DRIFT") {

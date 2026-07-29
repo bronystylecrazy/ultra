@@ -1,7 +1,7 @@
 # {{.Name}}
 
 A product on **ultrastack** — one repo, one module, one binary. `main.go` is the
-root page (`var App = di.Options(ultra.New(...))`); `internal/app/app.go` is the
+root page (`var App = ultra.New(...)`); `internal/app/app.go` is the
 only file that knows the feature list.
 {{if .From}}
 Migrated from `{{.From}}` with `ultra new --from`: every operation is wired and

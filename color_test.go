@@ -7,6 +7,17 @@ import (
 	"testing"
 )
 
+// TestMain takes the ambient terminal out of the picture. Colour is read FROM
+// the environment, and most assertions in this package match plain text, so a
+// developer exporting FORCE_COLOR turned a dozen honest tests red for a reason
+// that had nothing to do with the code. The package default is therefore NO
+// colour; a test that wants it says so with setEnv, which still wins.
+func TestMain(m *testing.M) {
+	os.Unsetenv("FORCE_COLOR")
+	os.Unsetenv("CLICOLOR_FORCE")
+	os.Exit(m.Run())
+}
+
 // setEnv sets (or, for an empty value, unsets) environment variables for the
 // duration of one test and restores exactly what was there before. The colour
 // rules are read FROM the environment, so a test that only ever sets can never
