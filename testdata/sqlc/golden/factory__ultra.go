@@ -22,6 +22,10 @@ var epoch = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func at(n int64) time.Time { return epoch.Add(time.Duration(n) * time.Second) }
 
+// ptr fills a NULLABLE column: with emit_pointers_for_null_types sqlc spells
+// those *T, and a factory always has a value to point at.
+func ptr[T any](v T) *T { return &v }
+
 // seqs is the per-test, per-table counter. Keying on the testing.TB is what
 // makes parallel tests independent; the cleanup keeps a long package run from
 // retaining every test that ever asked for a row.

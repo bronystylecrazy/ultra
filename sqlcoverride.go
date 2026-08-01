@@ -1,123 +1,167 @@
 package main
 
-// Type overrides, as a process plugin can actually see them.
+// The Go type sqlc actually emitted, column by column.
 //
-// migrate.md documents the two overrides a product reaches for first — uuid →
-// uuid.UUID, timestamptz → time.Time. sqlc honours them in gen/<table>.sql.go,
-// and this plugin must honour the SAME ones in gen/factory: the moment a
-// product follows the doc, a factory that still fills pgtype.Timestamptz stops
-// compiling against the params struct sqlc just emitted beside it.
+// A factory assigns into the params struct sqlc generated beside it, so every
+// value it fills must have the type SQLC chose — never the type this plugin
+// would have picked from the db type alone. Three things move that type, and
+// two of them used to be invisible here:
 //
-// Where they come from is forced by the wire. A CodeGenRequest carries
-// Settings.Codegen.Options — the ultra codegen entry's own `options:` block,
-// handed over as JSON — and nothing else about types. `sql.gen.go.overrides`
-// is resolved inside sqlc's Go codegen and never sent. So the product states
-// them twice, and the scaffolded sqlc.yaml carries both blocks side by side
-// with a comment saying why.
+//   - an `overrides:` entry keyed by db_type (the one migrate.md documents),
+//   - an `overrides:` entry keyed by COLUMN, which wins outright and ignores
+//     nullability — a real product shipped one and got the driver default,
+//   - NULLABILITY itself: a nullable text is *string or pgtype.Text, never
+//     string, and a factory that filled string did not compile.
+//
+// What follows is a port of sqlc's own goType/goInnerType at v1.31.1 — same
+// precedence, same order, same nullability rule — because the params struct
+// and this file must reach the same answer or the generated package does not
+// build. The renderings themselves are captured from real sqlc output, both
+// with and without emit_pointers_for_null_types, and checked against it column
+// by column in TestResolvedTypesMatchSQLC.
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
+	"regexp"
 	"strings"
 )
 
-// codegenOptions is the subset of `options:` this plugin reads. The key and
-// value spellings are sqlc's own, so one block copies between the two halves
-// of sqlc.yaml unchanged.
-type codegenOptions struct {
-	Overrides []struct {
-		DBType   string          `json:"db_type"`
-		Column   string          `json:"column"`
-		Nullable bool            `json:"nullable"`
-		GoType   json.RawMessage `json:"go_type"`
-	} `json:"overrides"`
+// typeConfig is the type policy this product's sqlc.yaml resolved: the
+// overrides in sqlc's precedence order, whether nullable columns are pointers,
+// and the catalog's default schema (a column override names its table).
+type typeConfig struct {
+	overrides []typeOverride
+	pointers  bool
+	schema    string
 }
 
-// overrideTargets is what a factory can fill for an overridden column, keyed
-// by the rendered Go type. A target absent from this table is not guessed:
-// its db type leaves the type table, and every affected table loses its
-// factory with a named reason — the same bargain pgTypes strikes.
-var overrideTargets = map[string]pgType{
-	// at() is factory-local, so a time.Time fill needs no import of its own.
-	"time.Time": {"time.Time", func(_, _, seq string) string { return "at(" + seq + ")" }, nil},
-	// uuid.UUID is [16]byte, so the deterministic value already on hand
-	// converts without a second generator.
-	"uuid.UUID": {"uuid.UUID", func(table, _, seq string) string {
-		return fmt.Sprintf("uuid.UUID(uuidAt(%q, %s).Bytes)", table, seq)
-	}, []string{"github.com/google/uuid"}},
+// typeOverride is one `overrides:` entry, from whichever channel carried it.
+type typeOverride struct {
+	dbType   string
+	column   string // table.column, schema.table.column, catalog.schema.table.column
+	nullable bool
+	goType   string // spelled the way the generated file must write it
+	imp      string // the import that spells it, when the entry named one
 }
 
-// typeTable is the pg → Go mapping THIS product resolved: pgTypes with the
-// codegen entry's overrides folded over it. Overrides marked `nullable: true`
-// are ignored, because a factory only ever fills the NOT NULL rendering —
-// which is also the only placement migrate.md sanctions.
-func typeTable(opts []byte, errW io.Writer) map[string]pgType {
-	table := make(map[string]pgType, len(pgTypes))
-	for k, v := range pgTypes {
-		table[k] = v
-	}
-	if len(opts) == 0 {
-		return table
-	}
-	var o codegenOptions
-	if err := json.Unmarshal(opts, &o); err != nil {
-		fmt.Fprintf(errW, "ultra plugin: the codegen options are not readable JSON (%v) — factories fall back to the driver defaults\n", err)
-		return table
-	}
-	for _, ov := range o.Overrides {
-		if ov.Nullable {
-			continue
+// typeOverridesOf reads an `overrides:` list out of a decoded config. The YAML
+// tree and the options JSON arrive as the same shape, so one reader serves
+// both channels.
+func typeOverridesOf(v any) []typeOverride {
+	var out []typeOverride
+	for _, item := range seqOf(v) {
+		m := mapOf(item)
+		o := typeOverride{
+			dbType:   strOf(m["db_type"]),
+			column:   strOf(m["column"]),
+			nullable: truthy(m["nullable"]),
 		}
-		if ov.DBType == "" {
-			fmt.Fprintf(errW, "ultra plugin: override for column %q is not db_type — gen/factory is override-aware by db type only, so that column keeps the driver default\n", ov.Column)
-			continue
+		o.goType, o.imp = renderGoType(m["go_type"])
+		if o.goType == "" || (o.dbType == "" && o.column == "") {
+			continue // not an override this plugin can act on
 		}
-		goType := renderGoType(ov.GoType)
-		target, ok := overrideTargets[goType]
-		if !ok {
-			// Removing it is the honest answer: sqlc's params struct now
-			// wants a type this generator cannot produce a value for.
-			delete(table, baseType(ov.DBType))
-			fmt.Fprintf(errW, "ultra plugin: %s is overridden to %s, which has no deterministic factory value — tables using it get no factory\n", ov.DBType, goType)
-			continue
-		}
-		table[baseType(ov.DBType)] = target
+		out = append(out, o)
 	}
-	return table
+	return out
+}
+
+// goTypeOf is the type sqlc put in this column's struct field: a column
+// override outright, then a db_type override whose nullability matches, then
+// the driver's own rendering. An empty string means sqlc's answer is not one
+// this plugin can reproduce — the caller emits nothing rather than guess.
+func (c typeConfig) goTypeOf(table *sqlcIdent, col sqlcColumn) (goType, imp string) {
+	notNull := col.NotNull || col.IsArray
+	for _, o := range c.overrides {
+		if o.column != "" && o.matchesColumn(c.schema, table, col.Name) {
+			return o.goType, o.imp
+		}
+	}
+	db := baseType(col.Type.Name)
+	for _, o := range c.overrides {
+		if o.dbType != "" && baseType(o.dbType) == db && o.nullable != notNull {
+			return o.goType, o.imp
+		}
+	}
+	t, ok := pgTypes[db]
+	switch {
+	case !ok:
+		return "", ""
+	case notNull:
+		return t.notNull, ""
+	case c.pointers && t.pointer:
+		return "*" + t.notNull, ""
+	default:
+		return t.null, ""
+	}
+}
+
+// matchesColumn is sqlc's column matching in the subset a product writes: two
+// to four dotted parts, with * as a wildcard for any of them.
+func (o typeOverride) matchesColumn(defaultSchema string, table *sqlcIdent, col string) bool {
+	parts := strings.Split(o.column, ".")
+	if table == nil || len(parts) < 2 || len(parts) > 4 {
+		return false
+	}
+	want := sqlcIdent{Schema: defaultSchema, Name: parts[len(parts)-2]}
+	switch len(parts) {
+	case 3:
+		want.Schema = parts[0]
+	case 4:
+		want.Catalog, want.Schema = parts[0], parts[1]
+	}
+	schema := table.Schema
+	if schema == "" {
+		schema = defaultSchema
+	}
+	if want.Catalog != "" && !globMatch(want.Catalog, table.Catalog) {
+		return false
+	}
+	return globMatch(want.Schema, schema) &&
+		globMatch(want.Name, table.Name) &&
+		globMatch(parts[len(parts)-1], col)
+}
+
+func globMatch(pattern, s string) bool {
+	if !strings.Contains(pattern, "*") {
+		return pattern == s
+	}
+	re, err := regexp.Compile("^" + strings.ReplaceAll(regexp.QuoteMeta(pattern), `\*`, ".*") + "$")
+	return err == nil && re.MatchString(s)
 }
 
 // renderGoType spells an override's `go_type` the way the generated file must
-// write it. sqlc accepts both forms: a fully qualified string
-// ("github.com/google/uuid.UUID", "time.Time") and an object naming the import
-// and the type separately.
-func renderGoType(raw json.RawMessage) string {
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
+// write it, and names the import that supplies it. sqlc accepts both forms: a
+// fully qualified string ("github.com/google/uuid.UUID", "time.Time") and an
+// object naming the import and the type separately.
+func renderGoType(v any) (goType, imp string) {
+	if s := strOf(v); s != "" {
+		dir, base := "", s
 		if i := strings.LastIndex(s, "/"); i >= 0 {
-			s = s[i+1:] // github.com/google/uuid.UUID -> uuid.UUID
+			dir, base = s[:i+1], s[i+1:]
 		}
-		return s
-	}
-	var obj struct {
-		Import  string `json:"import"`
-		Package string `json:"package"`
-		Type    string `json:"type"`
-		Pointer bool   `json:"pointer"`
-		Slice   bool   `json:"slice"`
-	}
-	if err := json.Unmarshal(raw, &obj); err != nil || obj.Type == "" || obj.Pointer || obj.Slice {
-		return ""
-	}
-	pkg := obj.Package
-	if pkg == "" {
-		pkg = obj.Import
-		if i := strings.LastIndex(pkg, "/"); i >= 0 {
-			pkg = pkg[i+1:]
+		pkg, _, ok := strings.Cut(base, ".")
+		if !ok {
+			return base, "" // a bare type name names no package
 		}
+		return base, dir + pkg
 	}
-	if pkg == "" {
-		return obj.Type
+	m := mapOf(v)
+	typ := strOf(m["type"])
+	if typ == "" {
+		return "", ""
 	}
-	return pkg + "." + obj.Type
+	imp = strOf(m["import"])
+	pkg := strOf(m["package"])
+	if pkg == "" && imp != "" {
+		pkg = imp[strings.LastIndex(imp, "/")+1:]
+	}
+	if pkg != "" {
+		typ = pkg + "." + typ
+	}
+	if truthy(m["slice"]) {
+		typ = "[]" + typ
+	}
+	if truthy(m["pointer"]) {
+		typ = "*" + typ
+	}
+	return typ, imp
 }
