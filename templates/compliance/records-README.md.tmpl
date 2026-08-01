@@ -1,0 +1,16 @@
+# records/ — what freezes here, and what never does
+
+At each release, `records/vX.Y.Z/` freezes the evidence of that cut
+(phase-3 of the compliance harness fills this in): the rendered trace
+matrix, the raw test/e2e reports, frame exports, CR dispositions from the
+release window, and the CUSTOMER sign-offs — UAT validation and WP.01
+acceptance — recorded BY REFERENCE (file / scan / message-id, who, when),
+entered by a human.
+
+**There are deliberately no empty record templates in this directory.**
+Records are created BY the acts, not filled into forms: `ultra req approve`
+writes the WP.22 validation stamp into the requirement file at the moment
+the human approves; a customer signature exists only in the customer's
+world and is pointed at, never fabricated. A blank template would invite an
+agent to complete a record no act produced — the exact failure mode this
+harness exists to make impossible.

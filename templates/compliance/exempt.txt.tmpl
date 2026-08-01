@@ -1,0 +1,9 @@
+# Operations exempt from the unclaimed-operation warning (REQ0104).
+# One pattern per line: an exact operationId, or a trailing-* prefix glob.
+# This file is a reviewed record: every line is a decision that some shipped
+# surface is INFRASTRUCTURE, not a product requirement.
+
+# The scaffold's own surface — real, but nobody's requirement:
+auth.*
+healthz
+ops.*

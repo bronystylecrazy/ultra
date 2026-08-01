@@ -139,6 +139,15 @@ func run(args []string, out, errW io.Writer) int {
 	case "mcp":
 		return cmdMCP(os.Stdin, out, errW)
 
+	case "trace":
+		return cmdTrace(rest, out, errW)
+
+	case "req":
+		return cmdReq(rest, out, errW)
+
+	case "compliance":
+		return cmdCompliance(rest, out, errW)
+
 	case "skill":
 		return cmdSkill(rest, out, errW)
 

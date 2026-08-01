@@ -1,0 +1,15 @@
+# Backup policy — {{.Name}}
+
+<!-- ISO/IEC 29110 WP.12. The stated policy line the standard asks for; the
+     machinery already exists. -->
+
+Everything that matters is committed: source, the derived contract artifacts,
+the requirement files, this file. The pushed remote IS the backup, and
+recovery is `git clone` — an agent that dies loses nothing that matters.
+
+- Remote(s): TODO (the canonical push target; add mirrors here if any)
+- Cadence: every landing is pushed; nothing lives only on one machine
+- Recovery drill: `git clone` + `task test` proves the repo restores; the
+  first `go test ./...` bootstraps any artifact a fresh clone lacks
+- Out of scope: production DATA backups belong to the deployment's ops
+  runbook, not this repo

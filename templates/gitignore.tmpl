@@ -4,6 +4,10 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Recorded runs (`task test` / `task e2e` tee here; `ultra trace` reads them).
+# Local exhaust — the frozen copies land in records/vX.Y.Z/ at a release.
+/.ultra/
 {{- if .Web}}
 
 # The frontend build is an artifact; `task build` regenerates it and the

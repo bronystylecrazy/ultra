@@ -60,6 +60,10 @@ type scaffoldData struct {
 	Web       bool   // --web:  SPA seam + web/ SvelteKit skeleton
 	Auth      bool   // --auth: contrib/auth wired and enforcing
 	DS        string // --ds:   the frontend's design system (--web only)
+	// Compliance is never a `ultra new` flag: it is detected off the tree
+	// (requirements/ present) by initShape, so `ultra init --force AGENTS.md`
+	// renders the requirements law block only for products that opted in.
+	Compliance bool
 
 	// The --auth dev seed. A scaffold that mounts login routes over an empty
 	// user store and a commented-out signing key is un-loginnable on arrival,
@@ -354,6 +358,9 @@ func cmdNew(args []string, out, errW io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "table" {
 		return cmdNewTable(args[1:], out, errW)
+	}
+	if len(args) > 0 && args[0] == "requirement" {
+		return cmdNewRequirement(args[1:], out, errW)
 	}
 
 	var name, module, version, from string

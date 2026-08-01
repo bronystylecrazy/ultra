@@ -18,7 +18,9 @@ export default defineConfig({
 	// holds together. Breadth belongs to the Go tiers, which are 100x faster.
 	workers: 1,
 	timeout: 30_000,
-	reporter: 'list',
+	// The JSON copy is the RECORDED run `ultra trace` joins validated
+	// statuses against (.ultra/ is gitignored).
+	reporter: [['list'], ['json', { outputFile: '../.ultra/e2e.json' }]],
 	use: { baseURL, trace: 'retain-on-failure' },
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 	// With no BASE_URL, Playwright OWNS the binary's lifetime: it starts it,

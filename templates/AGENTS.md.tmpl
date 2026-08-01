@@ -118,6 +118,31 @@ several products run side by side. They are ordinary files: change them freely.
 - **Time comes from `di.Clock`.** Stamp rows in Go (`clock.Now()`); no
   `DEFAULT now()` in migrations — tests must be able to drive time.
 
+{{- if .Compliance}}
+
+## Requirements & traceability (this product is opted in)
+
+`requirements/` is present, so the phase-2 compliance laws bind here — the
+full model is `references/trace.md` in the vendored skill:
+
+- **Draft the REQ before the feature.** `ultra new requirement <id> "<title>"`
+  first; the code lands against an existing (ideally approved) requirement.
+- **Joins land in the SAME commit as the work.** A REQ's `operations[]` /
+  `tests[]` / `e2e[]` frontmatter moves with the code it claims. No
+  requirement ids in code, ever — the operationId is the join key.
+- **Ask, don't guess.** Unsure about intent or acceptance? `ultra req ask
+  <id> "<question>"` parks it as `- open:` and `ultra trace` renders the
+  requirement blocked-on-human. Batch questions; answers are written back
+  into the file as dated Q&As — asked once, answered forever.
+- **Stop for approval.** Only a HUMAN runs `ultra req approve` (it stamps
+  who/when — the validation record). Never edit `status:`/`approved:` by
+  hand, and never supply an approver's identity on someone's behalf.
+- **Statuses are derived.** `ultra trace` computes implemented / verified /
+  validated from openapi.json and the recorded runs (`task test` / `task
+  e2e` tee `.ultra/test.json` / `.ultra/e2e.json`). Run `ultra trace` before
+  reporting progress; a stale record renders unknown, never green.
+{{- end}}
+
 ## The full doctrine
 
 **Run `ultra skill install` first, before anything else.** It vendors

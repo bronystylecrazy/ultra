@@ -184,6 +184,35 @@ names what is holding it. --force proceeds anyway and reports the build.`,
 				},
 			},
 			{
+				name:  "compliance",
+				short: "the class-2 compliance templates: init",
+				long: `The ISO/IEC 29110 class-2 harness — templates and records for a product
+that must answer an auditor.
+
+This parent holds the OPT-IN act. Everything downstream of it
+(requirements/, ultra trace, ultra req) is presence-activated: a product
+that never runs this is byte-for-byte unaffected.`,
+				subs: []*command{
+					{
+						name:  "init",
+						args:  "[dir] [--dry]",
+						short: "scaffold the class-2 templates and requirements/",
+						long: `Opt one product into the compliance harness.
+
+It writes the class-2 templates — AGREEMENT.md (WP.02, signed by reference),
+DECISIONS.md (WP.07, seeded), BACKUP.md (WP.12, the stated policy),
+requirements/README.md + EXAMPLE.md + exempt.txt, records/README.md — and
+nothing else. Deliberately NO empty record templates: records are created
+BY the acts (ultra req approve writes its stamp), never filled into forms.
+
+The contract is ultra init's exactly: a file that exists is never touched,
+--dry shows the plan, the second run writes nothing. The presence of
+requirements/ is what activates ultra trace from then on.`,
+						flags: []flagDoc{{"--dry", "show the plan and write nothing"}},
+					},
+				},
+			},
+			{
 				name:  "dev",
 				args:  `[--no-web] [--no-infra] [--no-pty] [-- <serve args>]`,
 				short: "the inner loop in one terminal",
@@ -372,6 +401,20 @@ they appear when content demands them, which is the doctrine's growth
 rule. Run it from the product root; one line in app.go finishes the job.`,
 					},
 					{
+						name:  "requirement",
+						args:  "<id> \"<title>\" [dir]",
+						short: "one requirement file at requirements/REQ-<id>.md",
+						long: `Scaffold one requirement: requirements/REQ-<id>.md, status draft.
+
+Frontmatter carries the joins (operations[] on governed operationIds,
+tests[], e2e[], frame) and the body carries the SRS prose — Statement,
+Rationale, Acceptance. Code never carries a requirement id; the
+operationId is the join key, and ultra trace derives every status.
+
+Writing the FIRST requirement is the opt-in act that activates trace for
+this product (ultra compliance init scaffolds the full class-2 set).`,
+					},
+					{
 						name:  "table",
 						args:  `<name> "<columns>" [flags] [dir]`,
 						short: "migration + queries + store, then sqlc generate",
@@ -445,6 +488,67 @@ same way, so the two cannot disagree about where the inbox is.`,
 				},
 			},
 			{
+				name:  "req",
+				short: "the requirements ledger: approve, ask, change",
+				long: `The human acts on a requirement file, as verbs — so every act leaves the
+stamp an auditor asks for. requirements/REQ-<id>.md is the record;
+ultra trace derives every status from it.`,
+				subs: []*command{
+					{
+						name:  "approve",
+						args:  "<id> [dir] [--by <name>]",
+						short: "draft → approved: the one human-declared transition",
+						long: `Approve a requirement — the WP.22 validation record, as data.
+
+This is the ONLY path to status: approved. It stamps who (git config
+user.name, unless --by) and the date, and it REFUSES while the file holds
+"- open:" clarifications: ask-don't-guess has teeth, and an approval over
+unanswered questions is not a validation.
+
+Agents never run this on a human's behalf. The MCP req_approve tool either
+elicits the human directly or answers "pending human approval" — no human
+signal, no approval.`,
+						flags: []flagDoc{{"--by <name>", "the approver (default: git config user.name)"}},
+					},
+					{
+						name:  "ask",
+						args:  "<id> \"<question>\" [dir]",
+						short: "park an open question instead of guessing",
+						long: `Append an unanswered clarification to a requirement.
+
+The question lands under ## Clarifications as "- open: …", and ultra trace
+renders the requirement blocked-on-human until a human writes the answer
+back as a dated Q&A. Approval is refused while any open item stands.
+
+Batch your questions; ask once, and the answer written into the file is
+answered forever.`,
+					},
+					{
+						name:  "change",
+						args:  "<id> --description \"...\" [flags] [dir]",
+						short: "log a change request (WP.03); accepted drops to draft",
+						long: `Append a change-request entry to a requirement's ## Changes log.
+
+Every disposition is recorded — accepted, rejected, AND deferred: a
+rejection is knowledge, and git history alone holds no diff for it. An
+entry without a disposition is UNDECIDED and trace renders the requirement
+blocked-on-human until a human decides.
+
+disposition: accepted on an APPROVED requirement drops it back to draft
+and clears the stamp — a materially changed requirement is one nobody has
+approved yet (the re-approval law). Cite ultra breaking --against output
+in --impact: generated evidence, not prose guesswork.`,
+						flags: []flagDoc{
+							{"--description \"...\"", "what is being asked for (required)"},
+							{"--requested-by <who>", "who asked (default: git config user.name)"},
+							{"--impact \"...\"", "the analysed impact — cite `ultra breaking --against`"},
+							{"--disposition accepted|rejected|deferred", "the HUMAN decision; omit to record undecided"},
+							{"--decided-by <who>", "who decided (default: git config user.name)"},
+						},
+					},
+				},
+			},
+			{
 				name:  "skill",
 				short: "the vendored doctrine: generate and install",
 				long: `The doctrine agents read — generated from this repo, vendored into a
@@ -474,6 +578,37 @@ bump.`,
 							{"--force", "re-vendor even when it is current"},
 						},
 					},
+				},
+			},
+			{
+				name:  "trace",
+				args:  "[dir] [--json] [--list]",
+				short: "requirements × contract × recorded runs, derived",
+				long: `The traceability record (WP.21), DERIVED — never hand-kept.
+
+It joins requirements/REQ-*.md against the committed openapi.json
+(operationIds; x-error-codes for 501-stub detection, the same logic as
+ultra brief's STUBS) and against the RECORDED runs task test / task e2e
+tee into .ultra/test.json and .ultra/e2e.json. trace never runs tests and
+never fakes freshness: each record's age is shown, and a record older than
+the newest source renders the statuses that depend on it unknown — not
+green.
+
+Per requirement it derives: implemented (all operations live; stubs render
+◐ n/m), verified (pinned tests present in the run and passed), validated
+(pinned e2e titles passed + acceptance prose present). Open questions or
+an undecided change request render blocked-on-human.
+
+Three gates: a REQ naming a dead operationId is an ERROR (REQ0102); a
+pinned test missing from the test list is an ERROR (REQ0103); an operation
+no requirement claims is a WARNING (REQ0104) unless exempted in
+requirements/exempt.txt. Errors exit 1.
+
+PRESENCE-ACTIVATED: without a requirements/ directory this is a clean
+no-op — the covenant products that never opted in rely on.`,
+				flags: []flagDoc{
+					{"--json", "the whole pack as one JSON document"},
+					{"--list", "re-derive the test list via `go test -list` (compiles every test package)"},
 				},
 			},
 			{

@@ -1,0 +1,26 @@
+# requirements/ — the spine
+
+One file per requirement: `REQ-<id>.md` = YAML frontmatter (the JOINS) +
+prose body (the SRS: Statement / Rationale / Acceptance). This directory's
+PRESENCE activates `ultra trace`; deleting it returns the product to
+dormancy. The full model is `references/trace.md` in the vendored skill.
+
+The laws, short form:
+
+- **No requirement ids in code, ever.** `operations[]` joins on the governed
+  operationIds in the committed openapi.json — rename an operation and
+  `ultra breaking` names it; update the join in the same landing.
+- **Statuses are derived, never written.** You write draft|approved;
+  `ultra trace` derives implemented / verified / validated from the contract
+  and the recorded runs (`.ultra/test.json`, `.ultra/e2e.json`).
+- **`ultra req approve` is the only path to approved** — it stamps who/when
+  (the WP.22 validation record) and refuses while `- open:` questions stand.
+- **Ask, don't guess**: `ultra req ask <id> "<question>"` parks the question;
+  trace renders blocked-on-human; the answer is written back as a dated Q&A.
+- **Changes are logged, rejections included**: `ultra req change` appends the
+  WP.03 entry; an ACCEPTED change drops the requirement back to draft.
+- **Requirements are the sharding unit**: one agent, one REQ file, disjoint
+  territories — derived records cannot merge-conflict.
+
+`EXAMPLE.md` shows the shape (trace ignores it — only `REQ-*.md` files
+count). `exempt.txt` lists infrastructure operations no requirement claims.

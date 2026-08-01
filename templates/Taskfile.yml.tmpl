@@ -35,7 +35,11 @@ tasks:
   test:
     desc: The covenant first — wiring, then boot, then everything else
     cmds:
-      - go test ./...
+      # The run is TEED to .ultra/test.json (gitignored): the recorded run
+      # `ultra trace` joins verified statuses against — trace never runs
+      # tests itself. Want prose output? `go test ./...` directly.
+      - mkdir -p .ultra
+      - set -o pipefail; go test -json ./... | tee .ultra/test.json
 {{if .Web}}
   check:
     desc: svelte-check + i18n coverage + API-usage gate — the frontend blast radius of a contract change

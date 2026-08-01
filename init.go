@@ -107,6 +107,7 @@ func initShape(dir, module string) (d scaffoldData, wired map[string]*wiredUse, 
 		return err == nil && fi.IsDir()
 	}
 	d.Web, d.DB = isDir("web"), isDir("internal/db")
+	d.Compliance = isDir(requirementsDir)
 	wired, err = scanWired(dir)
 	if err != nil {
 		return d, nil, err
@@ -233,6 +234,9 @@ func cmdInit(args []string, out, errW io.Writer) int {
 	}
 	if d.Web {
 		caps += ", ds " + d.DS
+	}
+	if d.Compliance {
+		caps += ", requirements"
 	}
 	fmt.Fprintf(out, "ultra init — %s\n\n  shape      %s\n\n", module, caps)
 

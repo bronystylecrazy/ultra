@@ -1,0 +1,47 @@
+<!-- The shape of a requirement, worked. This file is EXAMPLE.md on purpose:
+     ultra trace reads only REQ-*.md, so this never shows up as a row.
+     Copy nothing — `ultra new requirement <id> "<title>"` writes the real
+     thing. -->
+
+---
+id: EXAMPLE-01
+title: A worked example requirement
+status: draft
+operations:
+  - zones.list
+  - zones.create
+e2e:
+  - creates a zone and sees it listed
+tests:
+  - TestZoneCreate
+frame: "https://figma.com/design/...?node-id=1-2"
+---
+
+## Statement
+
+An operator can define speed zones (name, limit) and see the list update
+without a reload.
+
+## Rationale
+
+The customer's enforcement contract bills per zone; zones must be
+operator-managed, not deploy-managed.
+
+## Acceptance
+
+- Creating a zone with a duplicate name is refused with `zone.exists`.
+- The list shows a created zone within one refresh interval.
+
+## Clarifications
+
+- 2026-01-01 — Q: May zones overlap? A: Yes — enforcement picks the lower
+  limit. (ruled by the owner)
+- open: Is there a maximum zone count per tenant?
+
+## Changes
+
+- 2026-01-02 — requested-by: customer
+  description: zones gain a per-zone tolerance percentage
+  impact: additive field on zones.create — `ultra breaking --against` reports 0 breaking
+  disposition: deferred
+  decided-by: owner (2026-01-02)
