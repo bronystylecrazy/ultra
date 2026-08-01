@@ -212,6 +212,10 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		// string that was never made a key. Its allowlist ships beside it.
 		files["web/scripts/check-i18n.ts.tmpl"] = "web/scripts/check-i18n.ts"
 		files["web/i18n-allow.txt.tmpl"] = "web/i18n-allow.txt"
+		// Its sibling on the same run: the generated client is the API
+		// surface, and nothing else can prove a screen actually used it.
+		files["web/scripts/check-api-usage.ts.tmpl"] = "web/scripts/check-api-usage.ts"
+		files["web/api-usage-allow.txt.tmpl"] = "web/api-usage-allow.txt"
 	}
 	if d.DB {
 		// Central persistence: ONE migration line, per-domain query files,

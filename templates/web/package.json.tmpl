@@ -6,7 +6,7 @@
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && bun scripts/check-i18n.ts",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && bun scripts/check-i18n.ts && bun scripts/check-api-usage.ts",
 		"e2e": "playwright test"
 	},
 	"dependencies": {

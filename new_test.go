@@ -61,9 +61,11 @@ func TestFlagsShapeTheTree(t *testing.T) {
 	}
 	web := []string{
 		"spa.go", "spa_embed.go",
-		"web/.gitignore", "web/e2e/golden.spec.ts", "web/i18n-allow.txt",
+		"web/.gitignore", "web/api-usage-allow.txt",
+		"web/e2e/golden.spec.ts", "web/i18n-allow.txt",
 		"web/package.json",
-		"web/playwright.config.ts", "web/scripts/check-i18n.ts",
+		"web/playwright.config.ts",
+		"web/scripts/check-api-usage.ts", "web/scripts/check-i18n.ts",
 		"web/src/app.css", "web/src/app.html",
 		"web/src/lib/api/.gitkeep", "web/src/lib/api/vite.proxy.json",
 		"web/src/routes/+layout.svelte", "web/src/routes/+layout.ts",
@@ -213,6 +215,65 @@ func TestI18nCoverageGateIsWired(t *testing.T) {
 		if !strings.Contains(strings.Join(strings.Fields(page), " "), s) {
 			t.Errorf("i18n-allow.txt seeds %q, which the scaffolded +page.svelte does not contain:\n%s", s, page)
 		}
+	}
+}
+
+// TestAPIUsageGateIsWired is the same claim for the sibling gate: the
+// generated hooks and forms.ts are only the API surface if something fails
+// when a screen ignores them. A product that hand-rolls its calls passes
+// svelte-check, the build and every Go test — this script is the one thing
+// that does not let it.
+func TestAPIUsageGateIsWired(t *testing.T) {
+	d := testData("speedcheck", scaffoldData{Web: true})
+	dir := filepath.Join(t.TempDir(), d.Name)
+	if err := scaffold(dir, d); err != nil {
+		t.Fatal(err)
+	}
+	read := func(parts ...string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(append([]string{dir}, parts...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	// After check-i18n, in the same `check`: both gates or neither.
+	pkg := read("web", "package.json")
+	if !strings.Contains(pkg, "bun scripts/check-i18n.ts && bun scripts/check-api-usage.ts") {
+		t.Errorf("the check script must run the API-usage gate after the i18n one:\n%s", pkg)
+	}
+
+	// The three rules, the generated dirs it must not police, and the source
+	// of the prefixes — the product's real surface, never a hardcoded /v1.
+	script := read("web", "scripts", "check-api-usage.ts")
+	for _, want := range []string{
+		"from 'svelte/compiler'",
+		"vite.proxy.json",
+		"raw-fetch",
+		"hand-rolled-hook",
+		"swallowed-error",
+		"src/lib/api",
+		"src/lib/i18n",
+		"src/lib/ui",
+		"api-usage-allow.txt",
+		"process.exit(1)",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("check-api-usage.ts is missing %q:\n%s", want, script)
+		}
+	}
+
+	// The allowlist ships empty and explaining itself: an escape is a decision
+	// somebody writes down, never a line the scaffold seeded.
+	allow := read("web", "api-usage-allow.txt")
+	for _, line := range strings.Split(allow, "\n") {
+		if s := strings.TrimSpace(line); s != "" && !strings.HasPrefix(s, "#") {
+			t.Errorf("api-usage-allow.txt must ship with no entries, got %q", s)
+		}
+	}
+	if !strings.Contains(allow, "#") {
+		t.Errorf("api-usage-allow.txt must explain what belongs in it:\n%s", allow)
 	}
 }
 
@@ -894,25 +955,30 @@ func TestScaffoldCovenant(t *testing.T) {
 				}
 				sh("go", "build", "-tags", "embedspa", "-o", os.DevNull, ".")
 
+				// The frontend gates need node_modules. `--ds connected` also
+				// needs depot auth (the design system is a private library),
+				// and a machine without it must not turn the covenant red —
+				// so an unreachable registry skips with the reason, and any
+				// OTHER install failure is a real one.
+				if _, err := exec.LookPath("bun"); err != nil {
+					t.Skipf("no bun, so the frontend gates never ran: %v", err)
+				}
+				install := exec.Command("bun", "install")
+				install.Dir = filepath.Join(dir, "web")
+				bunOut, err := install.CombinedOutput()
+				switch {
+				case err == nil:
+					t.Logf("bun install\n%s", bunOut)
+				case depotOutOfReach(bunOut):
+					t.Skipf("the registry is out of reach, so the frontend gates stop here:\n%s", bunOut)
+				default:
+					t.Fatalf("bun install failed: %v\n%s", err, bunOut)
+				}
+				// This one asks nothing of the private registry, so it runs on
+				// BOTH design systems: a gate that only fires where depot
+				// answers is a gate that mostly does not fire.
+				assertAPIUsageGated(t, filepath.Join(dir, "web"))
 				if d.DS == dsConnected {
-					// The ONLY leg that needs depot auth: the design system is
-					// a private library. A machine without it must not turn the
-					// covenant red, so an unreachable registry skips with the
-					// reason — and any OTHER install failure is a real one.
-					if _, err := exec.LookPath("bun"); err != nil {
-						t.Skipf("no bun, so the design system was never resolved: %v", err)
-					}
-					install := exec.Command("bun", "install")
-					install.Dir = filepath.Join(dir, "web")
-					bunOut, err := install.CombinedOutput()
-					switch {
-					case err == nil:
-						t.Logf("bun install\n%s", bunOut)
-					case depotOutOfReach(bunOut):
-						t.Skipf("the depot registry is out of reach, so --ds connected stops here:\n%s", bunOut)
-					default:
-						t.Fatalf("bun install failed: %v\n%s", err, bunOut)
-					}
 					assertStyled(t, filepath.Join(dir, "web"))
 					assertI18nCovered(t, filepath.Join(dir, "web"))
 				}
@@ -1035,6 +1101,57 @@ func assertI18nCovered(t *testing.T, web string) {
 		}
 	}
 	t.Logf("bun scripts/check-i18n.ts   clean on the scaffold, red on a planted literal")
+}
+
+// assertAPIUsageGated is the third gate of the same family, closing the hole a
+// whole product can fall through in silence: `task gen` writes a hook and a
+// forms.ts binding for every operation, and a screen can ignore all of it,
+// fetch('/v1/…') by hand, and still pass svelte-check, the build and every
+// assertion above — with each 422 collapsing into one generic toast. Clean on
+// the scaffold, red on a planted hand-rolled call.
+func assertAPIUsageGated(t *testing.T, web string) {
+	t.Helper()
+	run := func() (string, error) {
+		cmd := exec.Command("bun", "scripts/check-api-usage.ts")
+		cmd.Dir = web
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	// The bootstrap wrote the client, so the gate is live rather than skipping.
+	if _, err := os.Stat(filepath.Join(web, "src", "lib", "api", "index.ts")); err != nil {
+		t.Fatalf("the api-usage gate would skip: no generated client to prefer: %v", err)
+	}
+	if out, err := run(); err != nil {
+		t.Fatalf("the scaffolded web/ must pass its own API-usage gate: %v\n%s", err, out)
+	}
+	planted := filepath.Join(web, "src", "routes", "handrolled")
+	if err := os.MkdirAll(planted, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(planted)
+	if err := os.WriteFile(filepath.Join(planted, "+page.svelte"), []byte(
+		"<script lang=\"ts\">\n"+
+			"\timport { createQuery } from '@tanstack/svelte-query';\n"+
+			"\tconst zones = createQuery({\n"+
+			"\t\tqueryKey: ['zones'],\n"+
+			"\t\tqueryFn: async () => (await fetch('/v1/zones')).json()\n"+
+			"\t});\n"+
+			"</script>\n\n<p>{zones.data}</p>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run()
+	if err == nil {
+		t.Fatalf("a hand-rolled fetch at /v1 passed the API-usage gate:\n%s", out)
+	}
+	// The failure has to be mechanical to act on: where, which rule, the escape.
+	for _, want := range []string{
+		"handrolled/+page.svelte", "raw-fetch", "hand-rolled-hook", "api-usage-allow.txt",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the API-usage failure must name %q so the fix needs no thinking:\n%s", want, out)
+		}
+	}
+	t.Logf("bun scripts/check-api-usage.ts   clean on the scaffold, red on a hand-rolled call")
 }
 
 // treeOf lists every file under dir, slash-separated and sorted.
