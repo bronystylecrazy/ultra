@@ -708,6 +708,37 @@ func TestDevContractsSilentWithoutAToolbox(t *testing.T) {
 	}
 }
 
+// The override file is Compose's documented escape hatch — and passing -f for
+// the generated file turns Compose's own search for it OFF. So the loop has to
+// name it, and only when it is there.
+func TestDevComposePassesTheOverrideWhenItExists(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, devComposeFile), []byte("services: {}\n"), 0o644))
+
+	want := []string{"compose", "-f", devComposeFile, "up", "-d", "--wait"}
+	if got := devComposeArgs(root); !reflect.DeepEqual(got, want) {
+		t.Errorf("without an override: docker %v, want docker %v", got, want)
+	}
+
+	must(t, os.WriteFile(filepath.Join(root, devComposeOverride), []byte("services: {}\n"), 0o644))
+	want = []string{"compose", "-f", devComposeFile, "-f", devComposeOverride, "up", "-d", "--wait"}
+	if got := devComposeArgs(root); !reflect.DeepEqual(got, want) {
+		t.Errorf("with an override: docker %v, want docker %v", got, want)
+	}
+
+	// And the banner says so, because a merge nobody can see is the bug this
+	// fixes wearing different clothes.
+	var out strings.Builder
+	d := newDevLoop(root, devOptions{}, &out, &strings.Builder{})
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker is not on PATH — the banner is only printed on the path that runs it")
+	}
+	d.bootInfra()
+	if !strings.Contains(out.String(), "-f "+devComposeFile+" -f "+devComposeOverride) {
+		t.Errorf("the banner must name both files:\n%s", out.String())
+	}
+}
+
 // The scratch directory ignores itself, so no product's .gitignore has to
 // learn about ultra dev.
 func TestDevBuildDirIgnoresItself(t *testing.T) {
