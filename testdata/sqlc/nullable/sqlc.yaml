@@ -1,0 +1,34 @@
+# The config this fixture was captured with (the capture ran a byte-dumping
+# binary under the name `ultra`). Two real-world shapes at once: NULLABLE
+# columns under emit_pointers_for_null_types, and COLUMN-targeted overrides —
+# stated in gen.go, where sqlc resolves them, and repeated in the codegen
+# entry's options:, the channel a process plugin is handed directly.
+version: "2"
+plugins:
+  - name: ultra
+    process:
+      cmd: ultra
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "queries"
+    codegen:
+      - plugin: ultra
+        out: "gen"
+        options:
+          overrides:
+            - column: "gizmos.tag"
+              go_type: "github.com/google/uuid.UUID"
+            - column: "*.created_at"
+              go_type: "time.Time"
+    gen:
+      go:
+        package: "gen"
+        out: "gen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        overrides:
+          - column: "gizmos.tag"
+            go_type: "github.com/google/uuid.UUID"
+          - column: "*.created_at"
+            go_type: "time.Time"

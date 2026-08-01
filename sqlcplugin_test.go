@@ -6,6 +6,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,8 +30,10 @@ const fixtureRequest = "codegen_request.bin"
 
 // loadFixture returns one captured product: testdata/sqlc/product is the plain
 // one, testdata/sqlc/overrides the same capture from a sqlc.yaml carrying
-// migrate.md's uuid/timestamptz overrides in the ultra codegen entry's
-// `options:` — the only channel those reach a process plugin through.
+// migrate.md's uuid/timestamptz overrides, and testdata/sqlc/nullable a
+// product whose columns are NULLABLE and whose overrides are keyed by COLUMN.
+// Each dir carries the sqlc.yaml it was captured with, because the plugin
+// reads that file back for the `gen: go:` facts sqlc never sends.
 func loadFixture(t *testing.T, name string) (dir string, req []byte) {
 	t.Helper()
 	dir, err := filepath.Abs(filepath.Join("testdata", "sqlc", name))
@@ -212,6 +216,184 @@ func TestPluginGoldenOverrides(t *testing.T) {
 			t.Errorf("the keyset cursor must stay pgtype:\n%s", f.body)
 		}
 	}
+}
+
+// TestPluginGoldenNullable is the two bugs two real products hit, side by
+// side: a NULLABLE column, which sqlc renders *string or pgtype.Timestamptz
+// and never string (firefly), and an override keyed by COLUMN rather than
+// db_type, which the factory used to ignore outright (duckpond). Both end the
+// same way — a fill of the wrong type against the params struct sitting beside
+// it — so both are asserted on the fills themselves.
+func TestPluginGoldenNullable(t *testing.T) {
+	files, _ := goldenRun(t, "nullable", "golden-nullable")
+	if files == nil {
+		return // -update
+	}
+	var factory string
+	for _, f := range files {
+		if f.name == "factory/gizmos.go" {
+			factory = string(f.body)
+		}
+	}
+	if factory == "" {
+		t.Fatal("the nullable product got no gizmos factory")
+	}
+	for _, want := range []string{
+		"Subject:   fmt.Sprintf(",           // a NOT NULL text is still a plain string
+		"Label:     ptr(fmt.Sprintf(",       // a nullable text is *string
+		"Tally:     ptr(int32(n)),",         // ... and a nullable int4 is *int32
+		"Ratio:     ptr(float64(n)),",       //
+		"Active:    ptr(false),",            //
+		"SeenAt:    pgtype.Timestamptz{",    // but pgx/v5 leaves timestamptz alone
+		`Payload:   []byte("{}"),`,          // and jsonb alone
+		`Tag:       uuid.UUID(uuidAt("gizmos", n).Bytes)`, // the column override, on a NULLABLE column
+		"CreatedAt: at(n),",                               // and one written with a wildcard table
+		`"github.com/google/uuid"`,
+	} {
+		if !strings.Contains(factory, want) {
+			t.Errorf("factory/gizmos.go is missing %q:\n%s", want, factory)
+		}
+	}
+	// The child's fk is a pgtype.UUID and so is the parent's id, so the parent
+	// row is taken whole — and its own nullable column still gets a pointer.
+	for _, f := range files {
+		if f.name != "factory/gadgets.go" {
+			continue
+		}
+		for _, want := range []string{"GizmoID:   Gizmo(t, db).ID,", "Note:      ptr(fmt.Sprintf("} {
+			if !strings.Contains(string(f.body), want) {
+				t.Errorf("factory/gadgets.go is missing %q:\n%s", want, f.body)
+			}
+		}
+	}
+}
+
+// TestParentFill covers the foreign-key path an override can also break: the
+// child's fk and the parent's id are two columns, resolved separately, and a
+// factory that hands one to the other has to have the SAME type in hand.
+func TestParentFill(t *testing.T) {
+	parent := func(idType string, create bool) *tableGen {
+		g := &tableGen{
+			name:  "ducks",
+			ident: sqlcIdent{Name: "ducks"},
+			cols:  []sqlcColumn{col("id", idType, true)},
+			types: typeConfig{schema: "public"},
+		}
+		if create {
+			g.create = &sqlcQuery{Name: "CreateDuck"}
+		}
+		return g
+	}
+	child := &tableGen{name: "quacks", ident: sqlcIdent{Name: "quacks"}}
+
+	for _, c := range []struct {
+		name, idType, fkType string
+		parent               *tableGen
+		wantExpr, wantReason string
+	}{
+		{name: "the same spelling on both sides", idType: "uuid", fkType: "pgtype.UUID",
+			parent: parent("uuid", true), wantExpr: "Duck(t, db).ID"},
+		{name: "a nullable fk over a pointerable id", idType: "int8", fkType: "*int64",
+			parent: parent("int8", true), wantExpr: "ptr(Duck(t, db).ID)"},
+		{name: "an override on one side only", idType: "uuid", fkType: "uuid.UUID",
+			parent: parent("uuid", true), wantReason: "column duck_id is uuid.UUID but ducks.id is pgtype.UUID"},
+		{name: "a parent with no factory", idType: "uuid", fkType: "pgtype.UUID",
+			parent: parent("uuid", false), wantReason: "which has no factory of its own"},
+		{name: "a parent with no id", idType: "uuid", fkType: "pgtype.UUID",
+			parent: &tableGen{name: "ducks", create: &sqlcQuery{}}, wantReason: "which has no id column to take"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			expr, reason := parentFill(child, map[string]*tableGen{"ducks": c.parent}, "ducks", "duck_id", c.fkType)
+			if expr != c.wantExpr {
+				t.Errorf("expr = %q, want %q", expr, c.wantExpr)
+			}
+			if c.wantReason != "" && !strings.Contains(reason, c.wantReason) {
+				t.Errorf("reason = %q, want it to say %q", reason, c.wantReason)
+			}
+			if c.wantReason == "" && reason != "" {
+				t.Errorf("unexpected refusal: %s", reason)
+			}
+		})
+	}
+	// A self-reference has no terminating factory, whatever the types say.
+	if _, reason := parentFill(child, map[string]*tableGen{"quacks": child}, "quacks", "parent_id", "pgtype.UUID"); !strings.Contains(reason, "would not terminate") {
+		t.Errorf("a self-reference must be refused: %q", reason)
+	}
+}
+
+// TestResolvedTypesMatchSQLC is the drift gate, and the reason this generator
+// no longer keeps a type table of its own opinions: every column of the
+// nullable fixture is resolved here and compared against the field type SQLC
+// ITSELF emitted for it, captured from the same run as the request. A rule
+// that falls out of step with sqlc fails here, by name, instead of in a
+// product's build.
+func TestResolvedTypesMatchSQLC(t *testing.T) {
+	dir, raw := loadFixture(t, "nullable")
+	req, err := decodeRequest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	types := readTypeConfig(dir, req.Settings.Codegen, io.Discard)
+	types.schema = req.Catalog.DefaultSchema
+
+	models := sqlcModelFields(t, filepath.Join(dir, "gen", "models.go"))
+	if len(models) == 0 {
+		t.Fatal("the captured sqlc output carries no model structs")
+	}
+	var checked int
+	for _, s := range req.Catalog.Schemas {
+		if s.Name != types.schema {
+			continue
+		}
+		for _, tbl := range s.Tables {
+			fields := models[modelName(tbl.Rel.Name)]
+			if fields == nil {
+				t.Errorf("sqlc emitted no %s model", modelName(tbl.Rel.Name))
+				continue
+			}
+			for _, c := range tbl.Columns {
+				got, _ := types.goTypeOf(&tbl.Rel, c)
+				if want := fields[goName(c.Name)]; got != want {
+					t.Errorf("%s.%s resolved to %q, but sqlc emitted %q", tbl.Rel.Name, c.Name, got, want)
+				}
+				checked++
+			}
+		}
+	}
+	if checked < 14 {
+		t.Errorf("only %d columns were compared — the fixture lost its coverage", checked)
+	}
+}
+
+// sqlcModelFields reads sqlc's own models.go: struct -> field -> Go type, as
+// written.
+func sqlcModelFields(t *testing.T, path string) map[string]map[string]string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]map[string]string{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.TypeSpec)
+		if !ok {
+			return true
+		}
+		st, ok := spec.Type.(*ast.StructType)
+		if !ok {
+			return true
+		}
+		fields := map[string]string{}
+		for _, f := range st.Fields.List {
+			for _, name := range f.Names {
+				fields[name.Name] = types.ExprString(f.Type)
+			}
+		}
+		out[spec.Name.Name] = fields
+		return true
+	})
+	return out
 }
 
 // goldenRun drives the plugin over one captured fixture and compares (or, with

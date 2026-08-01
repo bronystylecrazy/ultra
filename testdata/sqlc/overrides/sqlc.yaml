@@ -1,0 +1,33 @@
+# migrate.md's two overrides, as a product states them: in `gen: go:`, where
+# sqlc resolves the types it emits. The codegen entry's `options:` carries the
+# same pair (it is in the captured request), so this fixture also proves the
+# two channels agreeing costs nothing.
+version: "2"
+plugins:
+  - name: ultra
+    process:
+      cmd: ultra
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "queries"
+    codegen:
+      - plugin: ultra
+        out: "gen"
+        options:
+          overrides:
+            - db_type: "uuid"
+              go_type: "github.com/google/uuid.UUID"
+            - db_type: "timestamptz"
+              go_type: "time.Time"
+    gen:
+      go:
+        package: "gen"
+        out: "gen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "timestamptz"
+            go_type: "time.Time"
