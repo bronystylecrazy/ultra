@@ -266,6 +266,10 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 		return 0
 	}
 
+	// What the release CHANGED prints before the gate runs, read out of the
+	// module itself — notes are for every product, opted-in or not.
+	notesBehavior := printReleaseNotes(out, dir, to)
+
 	// Everything below can fail, and a failure must leave the module exactly as
 	// found. go.sum may not exist yet; restoring "absent" is part of the deal.
 	sumPath := filepath.Join(dir, "go.sum")
@@ -283,6 +287,13 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 		restore()
 		fmt.Fprintf(errW, "\n%s: %s failed at %s — go.mod and go.sum restored to %s\n\n%s\n",
 			errCol.red("ultra upgrade"), step, to, from, headOf(output, 20))
+		// The behavior-changes section comes FIRST in the diagnosis: a listed
+		// change may be exactly what a failing test pins.
+		if notesBehavior && strings.HasPrefix(step, "go test") {
+			fmt.Fprintf(errW, "\n%s: releases/%s.md lists behavior changes — a listed change may be what\n"+
+				"      your test pins. Re-read that section (printed above) before debugging.\n",
+				errCol.yellow("note"), to)
+		}
 		failVerdict(errW, "upgrade", step+" failed at "+to+" — restored to "+from)
 		return 1
 	}

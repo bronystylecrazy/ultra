@@ -668,6 +668,12 @@ no-op — the covenant products that never opted in rely on.`,
 				short: "move THIS product onto a framework release",
 				long: `Move one product onto a framework release — latest unless --to.
 
+Before the gate runs it prints the target's release notes (releases/
+vX.Y.Z.md, shipped in the module) with the Behavior changes section
+highlighted — a green gate proves your tests still pass, not that a
+listed change didn't move what a test pins. Old tags shipped no notes;
+that is one honest line, never an error.
+
 It trues the ultrastack pins, then go mod tidy, build, test. A failure
 restores go.mod/go.sum, so a bad release leaves nothing behind. Contract
 drift is refreshed and reported, never committed. It never touches git.

@@ -43,7 +43,7 @@ func setupFrameworkProxy(t *testing.T, versions ...string) {
 	for _, v := range versions {
 		must(t, os.WriteFile(filepath.Join(vdir, v+".info"), []byte(`{"Version":"`+v+`"}`), 0o644))
 		must(t, os.WriteFile(filepath.Join(vdir, v+".mod"), []byte("module "+frameworkModule+"\n\ngo 1.26\n"), 0o644))
-		writeModuleZip(t, filepath.Join(vdir, v+".zip"), v)
+		writeModuleZip(t, filepath.Join(vdir, v+".zip"), v, nil)
 		list.WriteString(v + "\n")
 	}
 	must(t, os.WriteFile(filepath.Join(vdir, "list"), []byte(list.String()), 0o644))
@@ -66,7 +66,7 @@ func setupFrameworkProxy(t *testing.T, versions ...string) {
 	t.Setenv("GOWORK", "off")
 }
 
-func writeModuleZip(t *testing.T, path, ver string) {
+func writeModuleZip(t *testing.T, path, ver string, extra map[string]string) {
 	t.Helper()
 	f, err := os.Create(path)
 	must(t, err)
@@ -79,6 +79,9 @@ func writeModuleZip(t *testing.T, path, ver string) {
 	}
 	add("go.mod", "module "+frameworkModule+"\n\ngo 1.26\n")
 	add("lib.go", "package ultrastack\n\nfunc Version() string { return \""+ver+"\" }\n")
+	for name, body := range extra {
+		add(name, body)
+	}
 	must(t, zw.Close())
 }
 
