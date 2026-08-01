@@ -32,6 +32,7 @@ Available Commands:
   init         bring an EXISTING product up to the current doctrine
   mcp          Model Context Protocol server over stdio
   new          scaffold a product, or a feature inside one
+  records      frozen release evidence: freeze, sign
   report       file a field report where the fleet can read it
   req          the requirements ledger: approve, ask, change
   skill        the vendored doctrine: generate and install

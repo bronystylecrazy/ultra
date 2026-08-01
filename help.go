@@ -488,6 +488,57 @@ same way, so the two cannot disagree about where the inbox is.`,
 				},
 			},
 			{
+				name:  "records",
+				short: "frozen release evidence: freeze, sign",
+				long: `records/<version>/ — the evidence set one release freezes, and the
+signature references a human enters into it.
+
+Presence-activated like the whole compliance harness: a product without
+requirements/ has no evidence to freeze, and these verbs refuse politely.
+The frozen directory commits WITH the release, by a human.`,
+				subs: []*command{
+					{
+						name:  "freeze",
+						args:  "[version] [dir] [--force]",
+						short: "render one release's evidence into records/<version>/",
+						long: `Freeze the evidence of one release into records/<version>/ (WP.09/20/21/
+22/23): the derived trace matrix (human + JSON), COPIES of the recorded
+runs with their real mtimes and the staleness verdict trace computed — a
+freeze of stale evidence says so, it never launders staleness fresh — the
+requirements set as-of-now (statuses, approval stamps, open questions,
+change-request dispositions), Figma frame exports for every requirement
+that pins one (FIGMA_ACCESS_TOKEN; absent token or API = a stated note,
+never a failed freeze), and RECORD.md with an UNSIGNED marker per signed
+work product until ultra records sign enters each reference.
+
+version defaults to the newest git tag. Re-freezing an existing version
+REFUSES without --force: evidence rewriting must be loud. --force carries
+already-entered signature references over. Nothing is committed — the
+directory belongs in the release commit.`,
+						flags: []flagDoc{{"--force", "replace an existing records/<version>/ (loudly)"}},
+					},
+					{
+						name:  "sign",
+						args:  "<wp> --ref <pointer> [--version vX.Y.Z] [--by <name>] [dir]",
+						short: "enter a signature reference into a frozen record",
+						long: `Record the POINTER to an externally signed artifact — agreement (WP.02),
+uat (the UAT validation record) or acceptance (WP.01). The customer signs
+in their own world (a PDF, an email, a portal); the frozen RECORD.md holds
+the reference plus who entered it and when. A reference is entered once;
+overwriting one is refused.
+
+This is a human act: the MCP records_sign tool elicits the human or
+answers pending — a tool caller can never supply the signature.
+--version defaults to the latest frozen version.`,
+						flags: []flagDoc{
+							{"--ref <pointer>", "file / scan / message-id of the signed artifact (required)"},
+							{"--version vX.Y.Z", "which frozen record (default: the latest)"},
+							{"--by <name>", "who entered it (default: git config user.name)"},
+						},
+					},
+				},
+			},
+			{
 				name:  "req",
 				short: "the requirements ledger: approve, ask, change",
 				long: `The human acts on a requirement file, as verbs — so every act leaves the

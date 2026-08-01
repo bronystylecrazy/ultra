@@ -1,11 +1,26 @@
 # records/ — what freezes here, and what never does
 
-At each release, `records/vX.Y.Z/` freezes the evidence of that cut
-(phase-3 of the compliance harness fills this in): the rendered trace
-matrix, the raw test/e2e reports, frame exports, CR dispositions from the
-release window, and the CUSTOMER sign-offs — UAT validation and WP.01
-acceptance — recorded BY REFERENCE (file / scan / message-id, who, when),
-entered by a human.
+At each release, `ultra records freeze <version>` renders that cut's evidence
+into `records/<version>/`:
+
+- `trace.md` / `trace.json` — the derived traceability matrix (WP.21), as
+  rendered at the freeze;
+- `test.json` / `e2e.json` — COPIES of the recorded runs (`.ultra/` is
+  gitignored exhaust; the freeze is what makes a run durable), with their
+  real mtimes and the staleness verdict stated — stale evidence freezes AS
+  stale, loudly, never laundered fresh;
+- `requirements.md` — the requirements set as of the freeze: statuses, the
+  WP.22 approval stamps, open questions, change-request dispositions;
+- `frames/` — Figma exports for every requirement that pins a frame (skipped
+  with a stated note when FIGMA_ACCESS_TOKEN or the API is absent);
+- `RECORD.md` — the manifest, including a signature-references section: each
+  externally signed work product (agreement / uat / acceptance) is either a
+  human-entered pointer (`ultra records sign <wp> --ref <pointer>`) or an
+  explicit UNSIGNED marker.
+
+A version freezes ONCE; re-freezing refuses without `--force`, because
+evidence rewriting must be loud. The frozen directory commits WITH the
+release, by a human — the freeze never commits.
 
 **There are deliberately no empty record templates in this directory.**
 Records are created BY the acts, not filled into forms: `ultra req approve`

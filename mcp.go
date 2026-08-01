@@ -294,6 +294,16 @@ var mcpTools = []map[string]any{
 		}, "dir", "id", "description", "requested_by"),
 	},
 	{
+		"name":        "records_sign",
+		"description": "Enters a signature REFERENCE (file / scan / message-id of an externally signed artifact) into a frozen records/<version>/RECORD.md — agreement (WP.02), uat (UAT validation record) or acceptance (WP.01). This is a HUMAN act: with client elicitation support the human confirms and the entry is stamped with the server-side git identity; without it this returns 'pending human signature' and a human runs `ultra records sign` in a terminal. A reference is entered once and cannot be overwritten.",
+		"inputSchema": objSchema(map[string]any{
+			"dir":     strProp("Path to the product root."),
+			"wp":      strProp("One of agreement, uat, acceptance."),
+			"ref":     strProp("Pointer to the signed artifact (file path, scan, message-id)."),
+			"version": strProp("Optional frozen version (records/<version>/); defaults to the latest frozen one."),
+		}, "dir", "wp", "ref"),
+	},
+	{
 		"name":        "fleet_status",
 		"description": "Walks a workspace of ultrastack products and returns per-product status as JSON (framework version, graph fingerprint, component count, drift vs the saved baseline). Use it for a fleet-wide view of versions and drift.",
 		"inputSchema": objSchema(map[string]any{
@@ -324,8 +334,9 @@ var mcpDispatch = map[string]func(json.RawMessage) (string, error){
 // mcpServerDispatch holds the tools that may need to ELICIT the human —
 // they take the server so they can reach the wire. Checked first.
 var mcpServerDispatch = map[string]func(*mcpServer, json.RawMessage) (string, error){
-	"req_approve": toolReqApprove,
-	"req_change":  toolReqChange,
+	"req_approve":  toolReqApprove,
+	"req_change":   toolReqChange,
+	"records_sign": toolRecordsSign,
 }
 
 // ---- tool handlers (each reuses an existing command core) ----

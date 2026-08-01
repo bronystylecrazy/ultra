@@ -145,6 +145,9 @@ func run(args []string, out, errW io.Writer) int {
 	case "req":
 		return cmdReq(rest, out, errW)
 
+	case "records":
+		return cmdRecords(rest, out, errW)
+
 	case "compliance":
 		return cmdCompliance(rest, out, errW)
 
