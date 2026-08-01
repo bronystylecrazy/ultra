@@ -55,6 +55,11 @@ const (
 	// start and never again on a rebuild.
 	devComposeFile = "docker-compose.dev.yml"
 
+	// devComposeOverride is the hand-owned half beside it. Compose merges a
+	// file of this name automatically — but ONLY when it was left to find the
+	// files itself, and this loop passes -f. See devComposeArgs.
+	devComposeOverride = "docker-compose.override.yml"
+
 	// devDebounce coalesces a save burst — "format on save" is several writes,
 	// and a multi-file refactor is a wave of them.
 	devDebounce = 200 * time.Millisecond
@@ -357,14 +362,31 @@ func (d *devLoop) bootInfra() {
 		d.say(d.out, "·", "dev infra skipped — %s is here but docker is not on PATH", devComposeFile)
 		return
 	}
-	d.say(d.out, "·", "dev infra — docker compose -f %s up -d --wait", devComposeFile)
-	cmd := exec.Command("docker", "compose", "-f", devComposeFile, "up", "-d", "--wait")
+	args := devComposeArgs(d.root)
+	d.say(d.out, "·", "dev infra — docker %s", strings.Join(args, " "))
+	cmd := exec.Command("docker", args...)
 	cmd.Dir = d.root
 	cmd.Env = append(os.Environ(), d.childEnv()...)
 	cmd.Stdout, cmd.Stderr = d.prefixer("[infra]", d.out), d.prefixer("[infra]", d.errW)
 	if err := cmd.Run(); err != nil {
 		d.say(d.errW, "✗", "dev infra failed — %v (the loop continues; the API may not connect)", err)
 	}
+}
+
+// devComposeArgs is the docker invocation for this root.
+//
+// The override file is passed EXPLICITLY, and that is the whole point: Compose
+// auto-merges docker-compose.override.yml only while it is choosing the files
+// itself, and one -f turns the whole search off. Since this loop always passes
+// -f for the generated file, a product's override — the escape hatch devinfra's
+// own diagnostics tell you to write, `ports: ["55432:5432"]` and friends —
+// silently did nothing under `ultra dev`, which is worse than not having one.
+func devComposeArgs(root string) []string {
+	args := []string{"compose", "-f", devComposeFile}
+	if _, err := os.Stat(filepath.Join(root, devComposeOverride)); err == nil {
+		args = append(args, "-f", devComposeOverride)
+	}
+	return append(args, "up", "-d", "--wait")
 }
 
 // devAPIOrigin resolves the origin the API is about to serve on, so the

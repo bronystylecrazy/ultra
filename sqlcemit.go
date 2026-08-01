@@ -18,6 +18,7 @@ package main
 // than the hand-written code this replaces.
 
 import (
+	"cmp"
 	"fmt"
 	"go/format"
 	"regexp"
@@ -168,6 +169,10 @@ type tableGen struct {
 	// noFactory, when set, is the reason — reported in ultra.go rather than
 	// swallowed, so "where is my factory" is never a mystery.
 	noFactory string
+	// noPages is the same channel for a query that IS a keyset page but got no
+	// wrapper: "<Query> — <reason>", one per dropped query. Refusing is right;
+	// refusing quietly is the mystery this generator exists to avoid.
+	noPages []string
 }
 
 // colFill is one column a factory sets, already spelled in the type sqlc
@@ -242,9 +247,12 @@ func analyze(req *sqlcRequest, facts schemaFacts, types typeConfig) []tableGen {
 			}
 			continue
 		}
-		p, table := detectPage(q, byName, types)
-		if p != nil {
+		p, table, reason := detectPage(q, byName, types)
+		switch {
+		case p != nil:
 			table.pages = append(table.pages, *p)
+		case reason != "":
+			table.noPages = append(table.noPages, fmt.Sprintf("%s — %s", q.Name, reason))
 		}
 	}
 	for i := range out {
@@ -271,13 +279,13 @@ var tupleRe = regexp.MustCompile(`\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*[<>]\s*\(`)
 // table: a :many with a nullable (timestamptz, uuid) narg pair compared as a
 // tuple against the columns it orders by, plus an integer limit. Shape, not
 // naming — a query that merely mentions a cursor gets nothing.
-func detectPage(q *sqlcQuery, byName map[string]*tableGen, types typeConfig) (*pageGen, *tableGen) {
+func detectPage(q *sqlcQuery, byName map[string]*tableGen, types typeConfig) (*pageGen, *tableGen, string) {
 	if q.Cmd != ":many" || len(q.Columns) == 0 {
-		return nil, nil
+		return nil, nil, ""
 	}
 	tuple := tupleRe.FindStringSubmatch(strings.ToLower(q.Text))
 	if tuple == nil || !strings.Contains(strings.ToLower(q.Text), "order by") {
-		return nil, nil
+		return nil, nil, ""
 	}
 	var at, id, limit *sqlcColumn
 	var owners []sqlcColumn
@@ -295,26 +303,27 @@ func detectPage(q *sqlcQuery, byName map[string]*tableGen, types typeConfig) (*p
 		}
 	}
 	if at == nil || id == nil || limit == nil {
-		return nil, nil
+		return nil, nil, ""
 	}
 	// The tuple must be the ORDER BY, or the "one row past the end" trick
 	// reads a page nobody asked for.
 	order := strings.ToLower(q.Text[strings.LastIndex(strings.ToLower(q.Text), "order by"):])
 	if !strings.Contains(order, tuple[1]) || !strings.Contains(order, tuple[2]) {
-		return nil, nil
+		return nil, nil, ""
 	}
 	table := byName[q.Columns[0].Table.GetName()]
 	if table == nil {
-		return nil, nil
+		return nil, nil, ""
 	}
 	// emitPage writes the cursor into the two narg fields as pgtype literals,
 	// so a product whose overrides moved them elsewhere gets no wrapper rather
-	// than one that does not compile.
+	// than one that does not compile. From here on the table is known, so the
+	// refusal carries its reason instead of vanishing.
 	if atType, _ := types.goTypeOf(at.Table, *at); atType != "pgtype.Timestamptz" {
-		return nil, nil
+		return nil, table, fmt.Sprintf("the cursor param %s is %s, not pgtype.Timestamptz — an override moved it", at.Name, atType)
 	}
 	if idType, _ := types.goTypeOf(id.Table, *id); idType != "pgtype.UUID" {
-		return nil, nil
+		return nil, table, fmt.Sprintf("the cursor param %s is %s, not pgtype.UUID — an override moved it", id.Name, idType)
 	}
 	p := pageGen{
 		query:      q.Name,
@@ -328,11 +337,13 @@ func detectPage(q *sqlcQuery, byName map[string]*tableGen, types typeConfig) (*p
 	for _, c := range owners {
 		goType, _ := types.goTypeOf(c.Table, c)
 		if goType == "" || !c.NotNull || c.IsArray {
-			return nil, nil // an owner we cannot type is not a page we can write
+			// An owner we cannot type is not a page we can write — and that is
+			// worth saying, for the same reason the cursor checks above are.
+			return nil, table, fmt.Sprintf("the filter param %s is %s — a page wrapper cannot pass it through", c.Name, cmp.Or(goType, c.Type.Name))
 		}
 		p.owners = append(p.owners, ownerArg{arg: lowerCamel(goName(c.Name)), field: goName(c.Name), goType: goType})
 	}
-	return &p, table
+	return &p, table, ""
 }
 
 // rowType is the element type of the generated method's slice: sqlc reuses
@@ -584,6 +595,19 @@ var ErrSchemaBehind = errors.New("relation does not exist — run ./app migrate 
 		b.WriteString("\n// Tables with no generated factory, and why. Write one by hand in a\n" +
 			"// _test file, or give the column a type this generator can default:\n")
 		b.WriteString(strings.Join(skipped, "\n"))
+		b.WriteString("\n")
+	}
+	var dropped []string
+	for _, t := range tables {
+		for _, why := range t.noPages {
+			dropped = append(dropped, "//   "+why)
+		}
+	}
+	if len(dropped) > 0 {
+		b.WriteString("\n// Keyset queries with no generated <Query>Page wrapper, and why. Call the\n" +
+			"// sqlc method directly and fill the cursor params yourself, or drop the\n" +
+			"// override that moved them:\n")
+		b.WriteString(strings.Join(dropped, "\n"))
 		b.WriteString("\n")
 	}
 	return b.String()
