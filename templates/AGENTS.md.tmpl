@@ -25,6 +25,9 @@ This file is a ROUTER, not the manual. It tells you where to look.
    `stack.Validate(App)` passes, `main` boots. `TestContractDrift` names any
    contract you changed — run `task contracts` and **commit the diff**; that
    diff is the change's blast radius, and hiding it is the bug.
+5. **A gate named in a report was RE-RUN immediately before the report was
+   written; paste its real output.** A claimed gate without a fresh run is the
+   worst class of false report.
 
 ## The verbs
 
@@ -51,6 +54,10 @@ cd internal/db && sqlc generate
 
 A dev build serves **no frontend** by design — a 404 at `/` means you wanted
 {{if .Web}}`task dev:web` or a `-tags embedspa` build{{else}}the embedspa build{{end}}, not a bug fix.
+
+This product listens on **`:{{.HTTPPort}}`** — dev ports are derived from the
+product name (config.toml's `[http] addr`{{if .Web}}, playwright's e2e port{{end}}), so
+several products run side by side. They are ordinary files: change them freely.
 
 ## The laws (review-blockers)
 
@@ -80,6 +87,10 @@ A dev build serves **no frontend** by design — a 404 at `/` means you wanted
 - **Frontend tooling is bun, exclusively.** `bun install`, `bun add`, `bunx`
   (never npx), `bun run` — no npm, node, yarn or pnpm anywhere, including
   scripts you generate.
+- **The generated hooks and `forms.ts` ARE the API surface.** Screens import
+  `create<Op>Query`/`create<Op>Mutation` from `$lib/api` and bind failures with
+  `fieldErrors`; a hand-rolled `fetch('/v1/…')` or a bare `createQuery` fails
+  `bun run check` and needs an entry in `web/api-usage-allow.txt` naming why.
 {{- if .Auth}}
 - **The login page and the redirect guard are separable.** `+layout.ts` holds
   the whole guard — imports included — between its `auth guard` and

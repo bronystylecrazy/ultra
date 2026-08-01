@@ -1,5 +1,6 @@
 // Package app is the product: the ONLY file in the repo that knows the
-// feature list. main.go splices Modules() in; nothing else aggregates.
+// feature list. main.go lists app.Modules — the VALUE below, never a call;
+// nothing else aggregates.
 package app
 
 {{if .Features}}import (
