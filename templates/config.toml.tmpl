@@ -14,7 +14,11 @@
 #   go run . config reference
 
 [http]
-addr = ":8080"   # ULTRA_HTTP_ADDR overrides
+# Derived from the product name (8100–8999) rather than defaulted, so a second
+# product on this machine does not lose a fight for the same port. The same
+# name always derives the same port; change it freely — this file is yours, and
+# everything that needs the addr reads it from here.
+addr = ":{{.HTTPPort}}"   # ULTRA_HTTP_ADDR overrides
 
 [log]
 level = "info"   # debug|info|warn|error — retunes live on file change
@@ -27,6 +31,10 @@ locales = ["en", "th"]
 default = "en"
 {{if .DB}}
 [postgres]
+# The dev container in docker-compose.dev.yml is DERIVED from this line
+# (`./app infra compose`), database name included — so several products share
+# ONE Postgres on :5432 and only the path here has to differ. Run a second
+# container instead and it will fight this one for the host port.
 url = "postgres://postgres:postgres@localhost:5432/{{.Name}}?sslmode=disable"
 {{end}}
 {{- if .Auth}}

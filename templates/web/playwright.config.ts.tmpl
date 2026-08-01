@@ -5,10 +5,11 @@
 //	BASE_URL=https://staging.example task e2e # ...or a deployed instance
 //
 // A FIXED high port, never ":0" — the kernel would pick a port nothing could
-// report back. Taken? E2E_PORT=9001 task e2e.
+// report back. It is derived from the product name (9100–9899) so two
+// products' e2e runs do not collide. Taken anyway? E2E_PORT=9001 task e2e.
 import { defineConfig, devices } from '@playwright/test';
 
-const port = process.env.E2E_PORT ?? '8391';
+const port = process.env.E2E_PORT ?? '{{.E2EPort}}';
 const baseURL = process.env.BASE_URL ?? `http://127.0.0.1:${port}`;
 
 export default defineConfig({

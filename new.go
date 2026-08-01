@@ -72,6 +72,11 @@ type scaffoldData struct {
 	DevUser     string // the seeded username
 	DevPassword string // the seeded password, printed once by `ultra new`
 
+	// Dev ports, derived from Name so two products can run on one machine
+	// and the same name always renders the same files. Filled by fillPorts.
+	HTTPPort int // [http] addr, and the vite proxy's standalone target
+	E2EPort  int // playwright's fixed high port (E2E_PORT overrides)
+
 	// --from: the legacy-service on-ramp. Features is the package list app.go
 	// renders (empty for a forward scaffold, so that file is byte-identical
 	// either way); plan carries everything the feature files need. Reverse
@@ -230,6 +235,7 @@ func scaffold(dir string, d scaffoldData) error {
 	if err := d.fillDevSeed(); err != nil {
 		return err
 	}
+	d.fillPorts()
 	// Defaulted here as well as in cmdNew so a direct caller — a test, an
 	// embedder — never renders a web/ whose app.css has no design system.
 	if d.Web && d.DS == "" {
@@ -417,6 +423,9 @@ func cmdNew(args []string, out, errW io.Writer) int {
 	}
 	d.Name, d.Module = name, module
 	d.Version, d.GoVersion = resolveVersion(version), scaffoldGoVersion
+	// Derived here as well as in scaffold so the lines printed below name the
+	// port the file actually carries.
+	d.fillPorts()
 	// Generated here rather than inside scaffold so the credentials can be
 	// printed below — a dev login nobody is told about is the silence this
 	// exists to end.
@@ -467,8 +476,8 @@ replace directives in go.mod to build against a local checkout)
 	// The skill line is FIRST and unconditional: the doctrine is generated,
 	// never scaffolded, so every new product needs this before an agent can
 	// read a word of it. .mcp.json is already on disk and needs nothing.
-	fmt.Fprintf(out, "\n%s is ready:\n  cd %s\n  ultra skill install  # vendors the doctrine into .claude/skills — do this first\n  task test        # the covenant: wiring + boot, then the contract gate\n  task dev:api     # serve on :8080 (a dev build serves NO frontend — by design)\n",
-		name, name)
+	fmt.Fprintf(out, "\n%s is ready:\n  cd %s\n  ultra skill install  # vendors the doctrine into .claude/skills — do this first\n  task test        # the covenant: wiring + boot, then the contract gate\n  task dev:api     # serve on :%d (a dev build serves NO frontend — by design)\n",
+		name, name, d.HTTPPort)
 	if d.Web {
 		fmt.Fprint(out, "  task dev:web     # the SvelteKit dev server (bun install first)\n")
 		fmt.Fprint(out, "  task e2e         # the golden path in a browser (bunx playwright)\n")

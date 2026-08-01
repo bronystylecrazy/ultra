@@ -11,9 +11,10 @@ import proxyPaths from './src/lib/api/vite.proxy.json';
 // Neither is the target under `ultra dev`: it resolves the API's real addr
 // (ULTRA_HTTP_ADDR > [http] addr > :8080) and exports ULTRA_DEV_API to this
 // process, so moving the addr does not turn every API call into a 404. The
-// literal below is only for a `bun dev` started on its own — change [http]
-// addr and you change this line too.
-const target = process.env.ULTRA_DEV_API ?? 'http://localhost:8080';
+// literal below is only for a `bun dev` started on its own — it mirrors
+// [http] addr, which is derived from the product name; change one and you
+// change this line too.
+const target = process.env.ULTRA_DEV_API ?? 'http://localhost:{{.HTTPPort}}';
 const proxy = Object.fromEntries(
 	Object.entries(proxyPaths).map(([p, o]) => [p, { target, ws: o.ws, changeOrigin: true }])
 );
