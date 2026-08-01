@@ -489,7 +489,7 @@ func TestNewTableCovenant(t *testing.T) {
 		"Label:     ptr(fmt.Sprintf(", // *string, not string
 		"Tally:     ptr(int32(n)),",
 		"Active:    ptr(false),",
-		"SeenAt:    at(n),", // the column override, not pgtype.Timestamptz
+		"SeenAt:    at(n),",              // the column override, not pgtype.Timestamptz
 		"CreatedAt: pgtype.Timestamptz{", // and an un-overridden column is untouched
 	} {
 		if !strings.Contains(string(gizmos), want) {
