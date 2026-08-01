@@ -460,6 +460,48 @@ func TestNewTableCovenant(t *testing.T) {
 		t.Fatalf("two tables in one feature must still build:\n%s", compiled)
 	}
 
+	// A table of NULLABLE columns, with a per-COLUMN override on one of them:
+	// the two shapes real products broke on. sqlc renders a nullable text
+	// *string (the scaffold asks for pointers) and gives seen_at the override's
+	// time.Time, and the factory has to reach BOTH answers — nothing but a
+	// build proves it, because a fill of the wrong type is a compile error and
+	// nothing else.
+	sqlcYAML := filepath.Join(dir, "internal", "db", "sqlc.yaml")
+	cfg, err := os.ReadFile(sqlcYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stated ONCE, in gen.go, where sqlc resolves it — the plugin reads the
+	// same file rather than a copy the product has to keep in sync.
+	cfg = append(cfg, "        overrides:\n          - column: \"gizmos.seen_at\"\n            go_type: \"time.Time\"\n"...)
+	if err := os.WriteFile(sqlcYAML, cfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errW := runNewTable(t, dir, "gizmos",
+		"label text, tally integer, ratio double precision, active boolean, seen_at timestamptz, payload jsonb", "--owned"); code != 0 {
+		t.Fatalf("a table of nullable columns must land: %d\n%s\n%s", code, out, errW)
+	}
+	gizmos, err := os.ReadFile(filepath.Join(gen, "factory", "gizmos.go"))
+	if err != nil {
+		t.Fatalf("the plugin wrote no factory for the nullable table: %v", err)
+	}
+	for _, want := range []string{
+		"Label:     ptr(fmt.Sprintf(", // *string, not string
+		"Tally:     ptr(int32(n)),",
+		"Active:    ptr(false),",
+		"SeenAt:    at(n),", // the column override, not pgtype.Timestamptz
+		"CreatedAt: pgtype.Timestamptz{", // and an un-overridden column is untouched
+	} {
+		if !strings.Contains(string(gizmos), want) {
+			t.Errorf("gen/factory/gizmos.go is missing %q:\n%s", want, gizmos)
+		}
+	}
+	build = exec.Command("go", "build", "./...")
+	build.Dir = dir
+	if compiled, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("nullable columns and a column override must still build:\n%s", compiled)
+	}
+
 	// Re-running must refuse: the table is already defined, and the SQL on
 	// disk belongs to the developer now.
 	if code, _, errW := runNewTable(t, dir, "notes", "title text not null", "--owned"); code == 0 {
