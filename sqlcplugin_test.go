@@ -239,13 +239,13 @@ func TestPluginGoldenNullable(t *testing.T) {
 		t.Fatal("the nullable product got no gizmos factory")
 	}
 	for _, want := range []string{
-		"Subject:   fmt.Sprintf(",           // a NOT NULL text is still a plain string
-		"Label:     ptr(fmt.Sprintf(",       // a nullable text is *string
-		"Tally:     ptr(int32(n)),",         // ... and a nullable int4 is *int32
-		"Ratio:     ptr(float64(n)),",       //
-		"Active:    ptr(false),",            //
-		"SeenAt:    pgtype.Timestamptz{",    // but pgx/v5 leaves timestamptz alone
-		`Payload:   []byte("{}"),`,          // and jsonb alone
+		"Subject:   fmt.Sprintf(",                         // a NOT NULL text is still a plain string
+		"Label:     ptr(fmt.Sprintf(",                     // a nullable text is *string
+		"Tally:     ptr(int32(n)),",                       // ... and a nullable int4 is *int32
+		"Ratio:     ptr(float64(n)),",                     //
+		"Active:    ptr(false),",                          //
+		"SeenAt:    pgtype.Timestamptz{",                  // but pgx/v5 leaves timestamptz alone
+		`Payload:   []byte("{}"),`,                        // and jsonb alone
 		`Tag:       uuid.UUID(uuidAt("gizmos", n).Bytes)`, // the column override, on a NULLABLE column
 		"CreatedAt: at(n),",                               // and one written with a wildcard table
 		`"github.com/google/uuid"`,
@@ -265,6 +265,53 @@ func TestPluginGoldenNullable(t *testing.T) {
 				t.Errorf("factory/gadgets.go is missing %q:\n%s", want, f.body)
 			}
 		}
+	}
+}
+
+// TestPluginDroppedPageSaysWhy is the same law as the factory's, one level
+// down: an override that moves the cursor types costs the product its
+// <Query>Page wrapper, correctly — emitting one would not compile — and used
+// to cost it silently, so "where did ListGizmosPage go" had no answer anywhere
+// in the output. The reason rides the SAME channel noFactory does: a named
+// block in ultra.go.
+func TestPluginDroppedPageSaysWhy(t *testing.T) {
+	dir, raw := loadFixture(t, "nullable")
+	req, err := decodeRequest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The override migrate.md tells products NOT to write: on the NULLABLE
+	// half, which is exactly where sqlc.narg cursor params live.
+	types := optionsConfig(t, `{"overrides":[{"db_type":"timestamptz","go_type":"time.Time","nullable":true}]}`)
+	tables := analyze(req, readSchemaFacts(dir, req.Settings.Schema), types)
+
+	var gizmos *tableGen
+	for i := range tables {
+		if tables[i].name == "gizmos" {
+			gizmos = &tables[i]
+		}
+	}
+	if gizmos == nil {
+		t.Fatal("the nullable fixture lost its gizmos table")
+	}
+	if len(gizmos.pages) != 0 {
+		t.Fatalf("the moved cursor type must cost the wrapper, got %d page(s)", len(gizmos.pages))
+	}
+	shared := emitShared(tables)
+	for _, want := range []string{
+		"no generated <Query>Page wrapper",
+		"ListGizmos — the cursor param after_at is time.Time, not pgtype.Timestamptz",
+	} {
+		if !strings.Contains(shared, want) {
+			t.Errorf("ultra.go does not say why the page was dropped (%q):\n%s", want, shared)
+		}
+	}
+
+	// And with the fixture's own overrides the wrapper is back and the block
+	// is gone — a note nobody can turn off is noise, not a reason.
+	clean := analyze(req, readSchemaFacts(dir, req.Settings.Schema), optionsConfig(t, `{"overrides":[]}`))
+	if strings.Contains(emitShared(clean), "<Query>Page wrapper") {
+		t.Error("a product whose pages all generated must get no dropped-page block")
 	}
 }
 
