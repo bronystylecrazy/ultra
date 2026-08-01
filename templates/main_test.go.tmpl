@@ -58,12 +58,20 @@ func TestBoot(t *testing.T) {
 	}
 	resp.Body.Close()
 {{- if .Auth}}
-	// auth.Protect is wired, and it is secure-by-default all the way down:
-	// /healthz answers 401 to an anonymous caller. If your load balancer
-	// probes health unauthenticated, that is a decision to make here — not
-	// a surprise to discover at 3am.
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("healthz: got %d, want 401 (auth.Protect guards ops too)", resp.StatusCode)
+	// auth.Protect is wired, and /healthz stays reachable: a probe reads the
+	// STATUS CODE, so an anonymous caller gets the terse verdict (200 ok,
+	// 503 degraded) and nothing else. The component breakdown — names,
+	// errors, causes — answers only a verified caller. /ops/* stay 401.
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("healthz: got %d, want 200 (the probe answer is public; detail is not)", resp.StatusCode)
+	}
+	ops, err := http.Get(base + "/ops/graph")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops.Body.Close()
+	if ops.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("ops/graph: got %d, want 401 (the graph is not a probe)", ops.StatusCode)
 	}
 
 	// ...and something can actually get IN. A product whose login routes are
