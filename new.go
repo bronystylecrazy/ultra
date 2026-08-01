@@ -501,7 +501,7 @@ the secret to ULTRA_AUTH_JWT_SECRET, before this serves anyone but you.
 			filepath.Base(from), count(len(d.Features), "feature"), count(d.plan.report.Stubs, "stub")))
 		return 0
 	}
-	fmt.Fprint(out, "\nYour first feature:\n  ultra new feature <name>   # internal/app/<name>/<name>.go, then one line in app.Modules()\n")
+	fmt.Fprint(out, "\nYour first feature:\n  ultra new feature <name>   # internal/app/<name>/<name>.go, then one line in app.go's di.Group\n")
 	verdict(errW, "new "+name, fmt.Sprintf("scaffolded %s (%s)", module, strings.TrimPrefix(capsSuffix(d), ", ")))
 	return 0
 }

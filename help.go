@@ -159,7 +159,7 @@ whether it wants a dev service.`,
 						short: "wire one preset into the assembly",
 						long: `Wire one preset.
 
-The argument goes into the assembly's bundle call (before app.Modules()
+The argument goes into the assembly's bundle call (before app.Modules
 when there is one), the import is added, the file is gofmt'd, and the
 refresh chain is printed. A non-canonical root is refused with the manual
 one-liner to paste instead — this command edits an AST it can prove it
