@@ -12,17 +12,16 @@ import (
 	"github.com/bronystylecrazy/ultrastack/di"
 )
 
-// Use is the front page of the feature: its whole wiring at a glance. One
-// api.Handle per operation the source document described — the contract is
-// declared HERE, in Go, and openapi.json is derived from it (never the other
-// way round; the source document has done its job).
+// Module is the front page of the feature: its whole wiring at a glance, as
+// ONE value the assembly lists. One api.Handle per operation the source
+// document described — the contract is declared HERE, in Go, and openapi.json
+// is derived from it (never the other way round; the source document has done
+// its job).
 //
 // As the port grows a handler past a closure — a store, a client, a clock —
-// move to the taught Handler idiom: a `Handler` struct in handler.go with
-// `Routes(r *api.Router)`, `di.Provide(NewHandler)` and `api.Routes[*Handler]()`
-// on this page. The contract does not change when you do.
-func Use() di.Reg {
-	return di.Pkg(
-		{{.Wiring}}
-	)
-}
+// move to the taught shape: a `Handler` struct in handler.go with a fluent
+// `Routes(r *api.Router)` table, wired here as `api.Handler(NewHandler)`. The
+// contract does not change when you do.
+var Module = di.Module("{{.Pkg}}",
+	{{.Wiring}}
+)

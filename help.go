@@ -364,7 +364,8 @@ convert YAML first.`,
 						args:  "<name>",
 						short: "one file at internal/app/<name>/<name>.go",
 						long: `Write the single-file collapse form of a feature package: one file
-exporting Use(), plus its errors.go.
+exporting Module — its wiring, its Handler, and the fluent route table to
+fill in — plus its errors.go.
 
 Manifest files (handler.go, service.go, types.go) are NOT scaffolded —
 they appear when content demands them, which is the doctrine's growth

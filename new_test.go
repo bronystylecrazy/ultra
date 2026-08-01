@@ -742,7 +742,10 @@ func TestNewFeatureScaffold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"package zones", "func Use() di.Reg", "di.Pkg("} {
+	for _, want := range []string{
+		"package zones", `var Module = di.Module("zones"`, "api.Handler(NewHandler)",
+		"func (h *Handler) Routes(r *api.Router)",
+	} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("feature file missing %q:\n%s", want, b)
 		}
@@ -752,7 +755,7 @@ func TestNewFeatureScaffold(t *testing.T) {
 	if len(entries) != 2 {
 		t.Errorf("a new feature is its front page plus its error contract — 2 files, got %d", len(entries))
 	}
-	if !strings.Contains(out.String(), "zones.Use()") {
+	if !strings.Contains(out.String(), "zones.Module") {
 		t.Errorf("the next step (one line in app.go) must be printed:\n%s", out.String())
 	}
 

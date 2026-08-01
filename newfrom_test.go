@@ -310,8 +310,8 @@ func TestFromScaffoldShape(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"example.com/depotreg/internal/app/depots"`,
-		"depots.Use(),",
-		"shipments.Use(),",
+		"depots.Module,",
+		"shipments.Module,",
 	} {
 		if !strings.Contains(string(appGo), want) {
 			t.Errorf("app.go must carry one line per feature, missing %q:\n%s", want, appGo)
@@ -327,7 +327,7 @@ func TestFromScaffoldShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(plain), `import "github.com/bronystylecrazy/ultrastack/di"`) ||
-		!strings.Contains(string(plain), "return di.Options()") {
+		!strings.Contains(string(plain), "var Modules = di.Group()") {
 		t.Errorf("a scaffold without --from must be byte-for-byte what it always was:\n%s", plain)
 	}
 }

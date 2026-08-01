@@ -114,7 +114,7 @@ var App = ultra.New( // the paved road: config + zerolog + Fiber on [http] +
 	SPA(), // dev: nothing at "/"; -tags embedspa: the built web/build
 {{end}}
 	// The product. app.go is the ONLY file that knows the feature list.
-	app.Modules(),
+	app.Modules,
 )
 
 // Growth is one registration each, right here (see the framework SKILL.md

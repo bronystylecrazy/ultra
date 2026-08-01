@@ -507,7 +507,7 @@ Two lines left:
 	di.Provide(NewStore),
 
   internal/app/app.go
-	%s.Use(),
+	%s.Module,
 
 `, d.Feature, d.Feature, d.Feature)
 	fmt.Fprintf(out, "NewStore takes a *gen.DB — provide it once per product, beside pg.Use():\n\tdi.Provide(gen.NewDB),\n")

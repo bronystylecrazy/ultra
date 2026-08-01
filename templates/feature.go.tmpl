@@ -1,12 +1,48 @@
 // Package {{.Name}} — <one line describing what this feature owns>.
 package {{.Name}}
 
-import "github.com/bronystylecrazy/ultrastack/di"
+import (
+	"github.com/bronystylecrazy/ultrastack/contrib/api"
+	"github.com/bronystylecrazy/ultrastack/di"
+)
 
-// Use wires the feature. Add it to app.Modules().
-func Use() di.Reg {
-	return di.Pkg(
-	// di.Provide(NewStore, NewHandler),
-	// api.Routes[*Handler](),
-	)
+// Module is the front page of the feature: its whole wiring at a glance, as
+// ONE value the assembly lists — never reassigned, never addressed. The name
+// IS the package name (di.Pkg() self-names instead, if you prefer no string).
+var Module = di.Module("{{.Name}}",
+	// di.Provide(NewStore),
+	api.Handler(NewHandler), // provides the constructor AND its route table
+)
+
+// Handler is the feature's API surface: one component, constructed by DI like
+// any other, holding the services its handlers need.
+type Handler struct{}
+
+func NewHandler() *Handler { return &Handler{} }
+
+// Routes is the whole route table, read top to bottom. The path IS the name:
+// a collection ends in the noun (GET /{{.Name}} → {{.Name}}.list), an item ends
+// in the parameter (GET /{{.Name}}/{id} → {{.Name}}.get) — shape the path for
+// the name you want, and .Name(...) when two paths would derive one.
+func (h *Handler) Routes(r *api.Router) {
+	// g := r.Group("/{{.Name}}", api.Require("{{.Name}}.read"))
+	// g.Get("", h.list)
+	// g.Get("/{id}", h.get).Codes(CodeNotFound)
+	// g.Post("", h.create).Require("{{.Name}}.write").Invalidates("{{.Name}}")
 }
+
+// Handlers are plain methods: ctx and a typed request in, the typed response
+// and an error out. Request payloads are <Op>Req and live beside the handler
+// (they ARE the contract); responses are domain nouns.
+//
+//	type GetReq struct {
+//	    ID string `path:"id"`
+//	}
+//
+//	func (h *Handler) get(ctx context.Context, req GetReq) (Thing, error) {
+//	    t, err := h.store.Get(ctx, req.ID)
+//	    if errors.Is(err, ErrNotFound) {
+//	        return Thing{}, api.Fail(404, CodeNotFound, "no thing %q", req.ID)
+//	    }
+//	    return t, err
+//	}

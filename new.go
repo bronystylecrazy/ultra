@@ -558,7 +558,7 @@ func cmdNewFeature(args []string, out, errW io.Writer) int {
 		failVerdict(errW, "new feature "+name, err.Error())
 		return 1
 	}
-	fmt.Fprintf(out, "created %s/%s.go\n\nOne line left — in internal/app/app.go:\n\t%s.Use(),\n", dir, name, name)
+	fmt.Fprintf(out, "created %s/%s.go\n\nOne line left — in internal/app/app.go:\n\t%s.Module,\n", dir, name, name)
 	verdict(errW, "new feature "+name, "created "+dir+" — one line left in app.go")
 	return 0
 }

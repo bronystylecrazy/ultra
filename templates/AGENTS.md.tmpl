@@ -61,6 +61,15 @@ A dev build serves **no frontend** by design — a 404 at `/` means you wanted
   never hand-edit them; fix the Go contract and run `task contracts`.
 - **Every operation declares `api.Require("perm")` or `api.Public()`.** Auth is
   secure-by-default; forgetting is a boot error, not a silent hole.
+- **A feature's API surface is a Handler struct with a fluent route table** —
+  `func (h *Handler) Routes(r *api.Router)`, `r.Group(prefix, defaults...)`,
+  one line per endpoint — wired as `api.Handler(NewHandler)` in the feature's
+  `Module` var. Handlers are `func(ctx, Req) (Resp, error)`; request payloads
+  are `<Op>Req`, responses are domain nouns (never `<Op>Resp`).
+- **Features never name a transport.** No `fiber`, no `net/http` in a feature,
+  with two sanctioned exceptions: `g.Raw(...)` for a net/http handler, and
+  `g.Native(...)` — which requires a stated `.Reason(...)` and quarantines its
+  fiber import in `handler_fib.go`.
 - **File names come from a closed set** plus the domain's nouns: `<pkg>.go`,
   `handler.go`, `types.go`, `deps.go`, `errors.go`, `*_test.go` (UV0003).
   `handler_users.go` and `service_billing.go` do not exist — split the domain

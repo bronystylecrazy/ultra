@@ -1271,16 +1271,18 @@ func path_Base(p string) string {
 	return p
 }
 
-// modulesArg finds the `app.Modules()` argument — the product's own feature
+// modulesArg finds the `app.Modules` argument — the product's own feature
 // list, which by doctrine is the LAST thing in the assembly. A preset the
-// product's features may consume has to be registered before it reads.
+// product's features may consume has to be registered before it reads. Both
+// spellings count: the taught var (`app.Modules`) and the older call form
+// (`app.Modules()`), which shipped products still carry.
 func modulesArg(call *ast.CallExpr) ast.Node {
 	for _, a := range call.Args {
-		c, ok := ast.Unparen(a).(*ast.CallExpr)
-		if !ok {
-			continue
+		expr := ast.Unparen(a)
+		if c, ok := expr.(*ast.CallExpr); ok {
+			expr = c.Fun
 		}
-		sel, ok := c.Fun.(*ast.SelectorExpr)
+		sel, ok := expr.(*ast.SelectorExpr)
 		if !ok || sel.Sel.Name != "Modules" {
 			continue
 		}
