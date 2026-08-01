@@ -41,6 +41,27 @@ var App = di.Options(
 func main() {}
 `
 
+// apiMain is the shape the CONTRACT GATE exists for: the typed edge wired, so
+// `openapi`/`client` are verbs this product has and TestContractDrift is a
+// gate it can actually satisfy.
+const apiMain = `package main
+
+import (
+	"github.com/bronystylecrazy/ultrastack/contrib/api"
+	"github.com/bronystylecrazy/ultrastack/contrib/i18n"
+	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/ultrastack/stack"
+)
+
+var App = di.Options(
+	stack.Product("shop"),
+	api.Use(),
+	i18n.Use(),
+)
+
+func main() {}
+`
+
 func exists(t *testing.T, dir, rel string) bool {
 	t.Helper()
 	_, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel)))
@@ -65,8 +86,11 @@ func TestInitRetrofitsABareOldProduct(t *testing.T) {
 			t.Errorf("init did not write %s", rel)
 		}
 	}
-	// Nothing the shape did not earn.
+	// Nothing the shape did not earn — contract_test.go included: a product
+	// with no api.Use() has no OpenAPI document to drift from, and the gate
+	// would fail on its first run instead of bootstrapping.
 	for _, rel := range []string{"messages/en.toml", "messages/th.toml",
+		"contract_test.go", "web/scripts/check-i18n.ts",
 		"web/playwright.config.ts", "web/e2e/golden.spec.ts"} {
 		if exists(t, dir, rel) {
 			t.Errorf("%s was written for a product with no web/ and no i18n", rel)
@@ -142,6 +166,95 @@ func TestInitDetectsTheFullShape(t *testing.T) {
 	}
 	if cat := readFile(t, filepath.Join(dir, "messages/en.toml")); !strings.Contains(cat, "Welcome to shop") {
 		t.Errorf("the catalog did not get the product name:\n%s", cat)
+	}
+}
+
+// The finding this fix comes from, reproduced: `ultra upgrade` regenerates
+// AGENTS.md, which cites `task contracts` and TestContractDrift as THE
+// covenant — and never creates the scaffold-only files a product born before
+// them lacks. The gate is unsatisfiable on every upgraded-not-rescaffolded
+// product on the fleet. init closes it, adding exactly the missing files.
+func TestInitRetrofitsTheContractGate(t *testing.T) {
+	dir := writeProduct(t, apiMain, map[string]string{
+		// Everything a bump already gave this product...
+		"AGENTS.md":                "# shop\n",
+		".mcp.json":                "{}\n",
+		"messages/en.toml":         "welcome = \"hi\"\n",
+		"messages/th.toml":         "welcome = \"สวัสดี\"\n",
+		"web/playwright.config.ts": "export default {}\n",
+		"web/e2e/golden.spec.ts":   "// mine\n",
+		// ...and the two files it hand-owns, neither of which knows about the
+		// gate yet.
+		"Taskfile.yml":     "version: '3'\n\ntasks:\n  test:\n    cmds:\n      - go test ./...\n",
+		"web/package.json": `{"scripts":{"check":"svelte-check --tsconfig ./tsconfig.json"}}`,
+	})
+
+	var out, errW strings.Builder
+	if code := cmdInit([]string{dir}, &out, &errW); code != 0 {
+		t.Fatalf("init must exit 0, got %d\n%s", code, errW.String())
+	}
+	t.Logf("ultra init (contract gate)\n%s%s", out.String(), errW.String())
+
+	// EXACTLY the missing files — the gate and the checks its `bun run check`
+	// half needs.
+	for _, rel := range []string{"contract_test.go", "web/scripts/check-i18n.ts",
+		"web/scripts/check-api-usage.ts", "web/api-usage-allow.txt"} {
+		if !exists(t, dir, rel) {
+			t.Errorf("init did not retrofit %s", rel)
+		}
+	}
+	if !strings.Contains(errW.String(), "4 written, 6 kept") {
+		t.Errorf("init should have added exactly the four missing files:\n%s", errW.String())
+	}
+	if !strings.Contains(out.String(), "shape      web+i18n+api, ds bare") {
+		t.Errorf("the shape line must show the api detection that earned the gate:\n%s", out.String())
+	}
+	// The artifacts are NOT rendered: contract_test.go writes openapi.json on
+	// its first run and gates it from the second, and a document this verb
+	// invented would be a contract nobody's code describes.
+	if exists(t, dir, "openapi.json") {
+		t.Error("init must not fabricate openapi.json — the test bootstraps it")
+	}
+	gate := readFile(t, filepath.Join(dir, "contract_test.go"))
+	for _, want := range []string{"func TestContractDrift", "task contracts", "func TestClientDrift"} {
+		if !strings.Contains(gate, want) {
+			t.Errorf("contract_test.go is missing %q for a web-shaped product:\n%s", want, gate)
+		}
+	}
+	// i18n-allow.txt is deliberately NOT retrofitted: its bytes are the
+	// scaffold's own placeholder copy, and the checker treats a missing
+	// allowlist as an empty one.
+	if exists(t, dir, "web/i18n-allow.txt") {
+		t.Error("web/i18n-allow.txt carries scaffold placeholder copy and must not be retrofitted")
+	}
+
+	// The two hand-owned files init REFUSES to rewrite, each with the exact
+	// bytes to paste. Refuse and instruct — never a silent merge.
+	for _, want := range []string{
+		"there is no such\n             task in Taskfile.yml",
+		"go run . openapi > openapi.json",
+		"go run . client --out web/src/lib/api",
+		`web/package.json is yours too`,
+		"&& bun scripts/check-i18n.ts && bun scripts/check-api-usage.ts",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the report is missing the wiring instruction %q:\n%s", want, out.String())
+		}
+	}
+	if got := readFile(t, filepath.Join(dir, "Taskfile.yml")); strings.Contains(got, "contracts:") {
+		t.Errorf("init rewrote a hand-owned Taskfile.yml:\n%s", got)
+	}
+	if got := readFile(t, filepath.Join(dir, "web/package.json")); strings.Contains(got, "check-i18n") {
+		t.Errorf("init rewrote a hand-owned web/package.json:\n%s", got)
+	}
+
+	// IDEMPOTENCE, again: the retrofit is a no-op the second time.
+	var out2, errW2 strings.Builder
+	if code := cmdInit([]string{dir}, &out2, &errW2); code != 0 {
+		t.Fatalf("second run must exit 0, got %d", code)
+	}
+	if !strings.Contains(errW2.String(), "0 written, 10 kept") {
+		t.Errorf("the second run must write nothing:\n%s", errW2.String())
 	}
 }
 
@@ -284,5 +397,42 @@ func TestUpgradeNudgesTowardInit(t *testing.T) {
 	}
 	if strings.Contains(out2.String(), "ultra init") {
 		t.Errorf("the nudge must disappear once the files exist:\n%s", out2.String())
+	}
+}
+
+// The bump is where AGENTS.md is regenerated, so it is where the reader is
+// promised `task contracts` and TestContractDrift. On a product that predates
+// them the nudge must NAME the files, not just the verb — an unsatisfiable
+// covenant is worse than a missing one.
+func TestUpgradeNudgeNamesTheContractGate(t *testing.T) {
+	setupGitEnv(t)
+	root := t.TempDir()
+	dir := newBumpProduct(t, root, "p", "github.com/acme/p", "v0.6.0", map[string]string{
+		"main.go":   apiMain,
+		"AGENTS.md": "# p\n",
+		".mcp.json": "{}\n",
+	})
+
+	var out, errW strings.Builder
+	if code := cmdUpgrade([]string{dir, "--to", "v0.6.0"}, &out, &errW); code != 0 {
+		t.Fatalf("already-current must exit 0, got %d\n%s", code, errW.String())
+	}
+	t.Logf("ultra upgrade\n%s", out.String())
+	// The whole list, joined the way a sentence with more than two names is.
+	if !strings.Contains(out.String(), "no contract_test.go, messages/en.toml and messages/th.toml — `ultra init`") {
+		t.Errorf("the nudge must name every file init would add:\n%s", out.String())
+	}
+
+	must(t, os.WriteFile(filepath.Join(dir, "contract_test.go"), []byte("package main\n"), 0o644))
+	must(t, os.MkdirAll(filepath.Join(dir, "messages"), 0o755))
+	for _, f := range []string{"en.toml", "th.toml"} {
+		must(t, os.WriteFile(filepath.Join(dir, "messages", f), []byte("k = \"v\"\n"), 0o644))
+	}
+	var out2, errW2 strings.Builder
+	if code := cmdUpgrade([]string{dir, "--to", "v0.6.0"}, &out2, &errW2); code != 0 {
+		t.Fatalf("already-current must exit 0, got %d\n%s", code, errW2.String())
+	}
+	if strings.Contains(out2.String(), "ultra init") {
+		t.Errorf("the nudge must disappear once the gate is there:\n%s", out2.String())
 	}
 }

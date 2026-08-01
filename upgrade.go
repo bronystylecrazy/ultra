@@ -235,9 +235,14 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 	// un-agented, silently, forever. A bump is when somebody is already
 	// looking at what the framework learned since — so say it here, once.
 	if missing := missingDoctrine(dir); len(missing) > 0 {
+		// Two files read as a sentence; a whole contract gate does not.
+		list := strings.Join(missing, " and ")
+		if len(missing) > 2 {
+			list = strings.Join(missing[:len(missing)-1], ", ") + " and " + missing[len(missing)-1]
+		}
 		fmt.Fprintf(out, "\n  %s       no %s — `ultra init` adds what the scaffold has\n"+
 			"             learned since this product was born.\n",
-			col.yellow("note"), strings.Join(missing, " and "))
+			col.yellow("note"), list)
 	}
 
 	if dry {
