@@ -36,6 +36,12 @@ const mcpServerVersion = scaffoldVersion
 type mcpServer struct {
 	in  *bufio.Reader
 	out io.Writer
+	// canElicit is the client's initialize-time declaration of the
+	// elicitation capability (MCP 2025-06-18). Without it, tools that need a
+	// human answer FAIL SAFE: they return "pending human approval" — an MCP
+	// caller can never supply the human signal itself.
+	canElicit bool
+	elicitID  int
 }
 
 // cmdMCP serves the MCP protocol until stdin closes (clean EOF → exit 0).
@@ -82,9 +88,11 @@ func (s *mcpServer) run() error {
 		switch msg.Method {
 		case "initialize":
 			var p struct {
-				ProtocolVersion string `json:"protocolVersion"`
+				ProtocolVersion string                     `json:"protocolVersion"`
+				Capabilities    map[string]json.RawMessage `json:"capabilities"`
 			}
 			json.Unmarshal(msg.Params, &p)
+			_, s.canElicit = p.Capabilities["elicitation"]
 			version := mcpProtocolVersion
 			if p.ProtocolVersion != "" {
 				version = p.ProtocolVersion // echo the client's request
@@ -119,6 +127,15 @@ func (s *mcpServer) handleCall(msg *mcpMessage) {
 	}
 	if err := json.Unmarshal(msg.Params, &p); err != nil {
 		s.replyErr(msg.ID, -32602, "invalid tools/call params")
+		return
+	}
+	if tool, ok := mcpServerDispatch[p.Name]; ok {
+		text, err := tool(s, p.Arguments)
+		if err != nil {
+			s.reply(msg.ID, mcpErrorContent(err.Error()))
+			return
+		}
+		s.reply(msg.ID, mcpTextContent(text))
 		return
 	}
 	tool, ok := mcpDispatch[p.Name]
@@ -233,6 +250,50 @@ var mcpTools = []map[string]any{
 		}, "dir", "name", "columns"),
 	},
 	{
+		"name":        "trace",
+		"description": "Returns the derived traceability record for a product that has opted into requirements/: each REQ's status (draft/approved) and derived rung (implemented ◐ n/m, verified, validated, blocked-on-human), the recorded-run freshness, and the three gates (dead operation, vanished pinned test, unclaimed operation). Dormant no-op without requirements/. Run it before reporting progress on an opted-in product.",
+		"inputSchema": objSchema(map[string]any{
+			"dir": strProp("Path to the product root (the directory holding go.mod)."),
+		}, "dir"),
+	},
+	{
+		"name":        "new_requirement",
+		"description": "Scaffolds requirements/REQ-<id>.md (status: draft) — frontmatter joins (operations[] on governed operationIds, tests[], e2e[], frame) plus the Statement/Rationale/Acceptance prose to fill. Draft the requirement BEFORE building the feature. Refuses to overwrite an existing file.",
+		"inputSchema": objSchema(map[string]any{
+			"dir":   strProp("Path to the product root."),
+			"id":    strProp("The requirement id, e.g. \"SPD-01\" (the file becomes REQ-SPD-01.md)."),
+			"title": strProp("A one-line human title."),
+		}, "dir", "id", "title"),
+	},
+	{
+		"name":        "req_ask",
+		"description": "Parks an open clarification question on a requirement (ask-don't-guess): appends `- open: <question>` under ## Clarifications, which makes ultra trace render the requirement blocked-on-human and makes approval refuse. Use it whenever intent or acceptance is unclear instead of guessing; batch related questions.",
+		"inputSchema": objSchema(map[string]any{
+			"dir":      strProp("Path to the product root."),
+			"id":       strProp("The requirement id."),
+			"question": strProp("The question a human must answer."),
+		}, "dir", "id", "question"),
+	},
+	{
+		"name":        "req_approve",
+		"description": "Requests approval of a requirement (draft → approved — the WP.22 validation record). Approval is a HUMAN act: if the MCP client supports elicitation the human is asked directly and their answer is recorded; otherwise this returns 'pending human approval' and the human runs `ultra req approve` in a terminal. The approver identity always comes from the human's environment (git config user.name) — it cannot be supplied by the caller. Refuses while open clarifications stand.",
+		"inputSchema": objSchema(map[string]any{
+			"dir": strProp("Path to the product root."),
+			"id":  strProp("The requirement id."),
+		}, "dir", "id"),
+	},
+	{
+		"name":        "req_change",
+		"description": "Appends a change-request entry (WP.03) to a requirement's ## Changes log: date, requested-by, description, impact (cite the breaking tool's output as evidence). The DISPOSITION (accept/reject/defer) is a human act: with client elicitation support the human decides now and the decision is recorded (accepted drops an approved REQ back to draft — the re-approval law); without it the entry is recorded UNDECIDED and trace renders blocked-on-human until `ultra req change --disposition` is run in a terminal.",
+		"inputSchema": objSchema(map[string]any{
+			"dir":          strProp("Path to the product root."),
+			"id":           strProp("The requirement id."),
+			"description":  strProp("What is being asked for."),
+			"requested_by": strProp("Who asked for the change (the customer, a report id) — the REQUESTER, not the decider."),
+			"impact":       strProp("Optional impact analysis — cite `breaking` output, not prose guesswork."),
+		}, "dir", "id", "description", "requested_by"),
+	},
+	{
 		"name":        "fleet_status",
 		"description": "Walks a workspace of ultrastack products and returns per-product status as JSON (framework version, graph fingerprint, component count, drift vs the saved baseline). Use it for a fleet-wide view of versions and drift.",
 		"inputSchema": objSchema(map[string]any{
@@ -244,17 +305,27 @@ var mcpTools = []map[string]any{
 // mcpDispatch maps a tool name to its handler; arguments arrive as the raw
 // JSON of the call's "arguments" object.
 var mcpDispatch = map[string]func(json.RawMessage) (string, error){
-	"explain":      toolExplain,
-	"codes":        toolCodes,
-	"vet":          toolVet,
-	"graph":        toolGraph,
-	"blast":        toolBlast,
-	"diff":         toolDiff,
-	"breaking":     toolBreaking,
-	"brief":        toolBrief,
-	"report":       toolReport,
-	"new_table":    toolNewTable,
-	"fleet_status": toolFleetStatus,
+	"explain":         toolExplain,
+	"codes":           toolCodes,
+	"vet":             toolVet,
+	"graph":           toolGraph,
+	"blast":           toolBlast,
+	"diff":            toolDiff,
+	"breaking":        toolBreaking,
+	"brief":           toolBrief,
+	"report":          toolReport,
+	"new_table":       toolNewTable,
+	"fleet_status":    toolFleetStatus,
+	"trace":           toolTrace,
+	"new_requirement": toolNewRequirement,
+	"req_ask":         toolReqAsk,
+}
+
+// mcpServerDispatch holds the tools that may need to ELICIT the human —
+// they take the server so they can reach the wire. Checked first.
+var mcpServerDispatch = map[string]func(*mcpServer, json.RawMessage) (string, error){
+	"req_approve": toolReqApprove,
+	"req_change":  toolReqChange,
 }
 
 // ---- tool handlers (each reuses an existing command core) ----

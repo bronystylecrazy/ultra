@@ -113,13 +113,14 @@ func TestMCPConversation(t *testing.T) {
 		}
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"explain", "codes", "vet", "graph", "blast", "diff", "breaking", "brief", "report", "fleet_status"} {
+	for _, want := range []string{"explain", "codes", "vet", "graph", "blast", "diff", "breaking", "brief", "report", "fleet_status",
+		"trace", "new_requirement", "req_ask", "req_approve", "req_change"} {
 		if !got[want] {
 			t.Errorf("tools/list missing %q", want)
 		}
 	}
-	if len(lr.Tools) != 11 {
-		t.Fatalf("want 11 tools, got %d", len(lr.Tools))
+	if len(lr.Tools) != 16 {
+		t.Fatalf("want 16 tools, got %d", len(lr.Tools))
 	}
 
 	// tools/call explain → the DI0001 lesson comes back as text.
