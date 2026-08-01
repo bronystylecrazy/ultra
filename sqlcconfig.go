@@ -25,6 +25,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -45,22 +46,10 @@ func readTypeConfig(dir string, codegen sqlcCodegen, errW io.Writer) typeConfig 
 	// The twin `options:` block is no longer load-bearing, but a product that
 	// edited one list and not the other is a product whose two halves disagree
 	// about a type — and sqlc emits the gen.go one.
-	if len(options) > 0 && !sameOverrides(options, cfg.overrides) {
+	if len(options) > 0 && !slices.Equal(options, cfg.overrides) {
 		fmt.Fprintln(errW, "ultra plugin: the codegen options: overrides differ from gen.go's — sqlc emits the gen.go types, so gen/factory follows those")
 	}
 	return cfg
-}
-
-func sameOverrides(a, b []typeOverride) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // sqlcConfigTree reads the config sqlc itself was run with: the plugin's
