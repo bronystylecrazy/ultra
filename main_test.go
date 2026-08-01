@@ -96,7 +96,7 @@ app.Config (singleton, module config) <- []
 func TestVetDelegatesToBinary(t *testing.T) {
 	bin := t.TempDir()
 	script := filepath.Join(bin, "ultravet")
-	os.WriteFile(script, []byte("#!/bin/sh\necho \"vet-args: $@\"\nexit 3\n"), 0o755)
+	os.WriteFile(script, []byte(vetStub("#!/bin/sh\necho \"vet-args: $@\"\nexit 3\n")), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	var out, errW strings.Builder
@@ -126,7 +126,7 @@ func TestVetDelegatesToBinary(t *testing.T) {
 func TestVetOutputFlagTranslation(t *testing.T) {
 	bin := t.TempDir()
 	script := filepath.Join(bin, "ultravet")
-	os.WriteFile(script, []byte("#!/bin/sh\necho \"vet-args: $@\"\nexit 0\n"), 0o755)
+	os.WriteFile(script, []byte(vetStub("#!/bin/sh\necho \"vet-args: $@\"\nexit 0\n")), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	cases := []struct {

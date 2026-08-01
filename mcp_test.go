@@ -209,7 +209,7 @@ func fakeUltravet(t *testing.T, script string) func() {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "ultravet")
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte(vetStub(script)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	old := os.Getenv("PATH")
