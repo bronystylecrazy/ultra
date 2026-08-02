@@ -22,6 +22,17 @@ import (
 // refresh openapi.json. The generated client (web/src/lib/api) is the same
 // trap with more files. So the rule is not "ignore noise" — it is "never
 // watch your own exhaust".
+//
+// Exhaust is not only bytes. The go command write-opens go.mod and go.sum on
+// EVERY build (its lockfile discipline), and macOS stamps a security xattr
+// (com.apple.provenance) on a file's first write-open by a new process
+// lineage — an attribute-only change, delivered as a bare Chmod event with
+// the mtime unmoved. On a product whose go.sum was last rewritten by someone
+// else (an upgrade, a git checkout), the loop's OWN first build fired that
+// stamp, the watcher read it as a save, and `ultra dev` restarted itself with
+// no user change in flight — every restamp another restart. So attribute-only
+// events pass only when the fingerprint (mtime+size) actually moved: `touch
+// main.go` still rebuilds, an xattr stamp never does. See devWatcher.moved.
 
 // devExcludedRoots are the top-level paths ultra dev never descends into.
 // Each one is either somebody else's job or our own output:
@@ -208,6 +219,12 @@ func devNewWatchDirs(root string) []string {
 // case that happens once per feature.
 const devRescanEvery = 3 * time.Second
 
+// devFingerprint is what a save changes and an attribute stamp does not.
+type devFingerprint struct {
+	mtime int64 // UnixNano
+	size  int64
+}
+
 // devWatcher is the fsnotify side: it turns filesystem events into relative
 // paths worth rebuilding for, and keeps itself current as packages appear.
 type devWatcher struct {
@@ -219,6 +236,12 @@ type devWatcher struct {
 	pruned []string
 	ticker *time.Ticker
 	rescan <-chan time.Time
+
+	// fp is the last known fingerprint per build input (root-relative, slash
+	// separated), seeded at startup so the first attribute-only event on a
+	// file we never saw change cannot pass for a save. Only the pump
+	// goroutine touches it after construction.
+	fp map[string]devFingerprint
 }
 
 func newDevWatcher(root string) (*devWatcher, error) {
@@ -228,7 +251,7 @@ func newDevWatcher(root string) (*devWatcher, error) {
 	}
 	dirs, pruned := devWatchDirs(root)
 	t := time.NewTicker(devRescanEvery)
-	d := &devWatcher{w: w, root: root, pruned: pruned, ticker: t, rescan: t.C}
+	d := &devWatcher{w: w, root: root, pruned: pruned, ticker: t, rescan: t.C, fp: devSnapshotInputs(root)}
 	for _, dir := range dirs {
 		if err := w.Add(dir); err != nil {
 			d.Close()
@@ -236,6 +259,63 @@ func newDevWatcher(root string) (*devWatcher, error) {
 		}
 	}
 	return d, nil
+}
+
+// devSnapshotInputs fingerprints every build input under root, using the same
+// exclusions the watch does. Startup-only: from then on moved() maintains it.
+func devSnapshotInputs(root string) map[string]devFingerprint {
+	fp := map[string]devFingerprint{}
+	filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // unreadable is a blind spot, not a failure
+		}
+		rel, relErr := filepath.Rel(root, p)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if e.IsDir() {
+			if rel != "." && devExcluded(rel) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !devShouldTrigger(rel) {
+			return nil
+		}
+		if info, err := e.Info(); err == nil {
+			fp[rel] = devFingerprint{info.ModTime().UnixNano(), info.Size()}
+		}
+		return nil
+	})
+	return fp
+}
+
+// moved reports whether the file behind a triggering event is a change worth
+// rebuilding for, and keeps the fingerprint current either way.
+//
+// A write, create, remove or rename always is. A BARE Chmod is the one op
+// that can lie: `touch main.go` arrives as one (mtime moved — rebuild, the
+// reflex the pump comment defends), but so does macOS stamping
+// com.apple.provenance on go.sum because our own `go build` write-opened it
+// (nothing moved — and rebuilding on it IS the restart loop this method
+// exists to make impossible).
+func (d *devWatcher) moved(rel string, op fsnotify.Op) bool {
+	info, err := os.Stat(filepath.Join(d.root, rel))
+	if err != nil {
+		if _, had := d.fp[rel]; had {
+			delete(d.fp, rel)
+			return true // it existed and is gone — a deletion rebuilds
+		}
+		return false // never existed for us: an editor temp file's create+delete
+	}
+	next := devFingerprint{info.ModTime().UnixNano(), info.Size()}
+	prev, known := d.fp[rel]
+	d.fp[rel] = next
+	if op != fsnotify.Chmod {
+		return true
+	}
+	return !known || prev != next
 }
 
 func (d *devWatcher) Close() error {
@@ -264,6 +344,9 @@ func (d *devWatcher) rescanPruned(changes chan<- string) {
 			d.w.Add(add)
 		}
 		still = append(still, pruned...)
+		if info, err := os.Stat(filepath.Join(d.root, first)); err == nil {
+			d.fp[first] = devFingerprint{info.ModTime().UnixNano(), info.Size()}
+		}
 		changes <- first
 	}
 	d.pruned = still
@@ -334,10 +417,10 @@ func (d *devWatcher) pump(changes chan<- string, errW io.Writer) {
 			}
 			// Every op counts, Chmod included: on macOS `touch main.go` is a
 			// bare attribute event, and "touch it to rebuild" is a reflex no
-			// loop should punish. Spurious ones cost a debounced no-op build,
-			// and our OWN writes cannot land here — the outputs are excluded
-			// and written only when the bytes actually moved.
-			if devShouldTrigger(rel) {
+			// loop should punish. But a bare Chmod only counts when the
+			// fingerprint moved — the OS stamping an xattr on go.sum during
+			// our own build looks identical and must not restart the loop.
+			if devShouldTrigger(rel) && d.moved(rel, ev.Op) {
 				changes <- rel
 			}
 		case err, ok := <-d.w.Errors:
