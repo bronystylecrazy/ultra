@@ -211,6 +211,13 @@ func (d *devLoop) childEnv() []string {
 	return env
 }
 
+// apiEnv is childEnv plus the dev-spans handshake: the otel preset's span
+// printer defaults ON under this loop (ULTRA_DEV_SPANS=1) and off everywhere
+// else; [otel] dev_print stays the product's override in both directions.
+func (d *devLoop) apiEnv() []string {
+	return append(d.childEnv(), "ULTRA_DEV_SPANS=1")
+}
+
 // webEnv is childEnv plus the API's resolved origin — the frontend is the one
 // child that has to reach the other one.
 func (d *devLoop) webEnv() []string {
@@ -339,7 +346,7 @@ func (d *devLoop) restartAPI() error {
 		dir:  d.root,
 		bin:  d.binPath(),
 		args: d.opts.serveArgs,
-		env:  d.childEnv(),
+		env:  d.apiEnv(),
 		pty:  d.pty,
 	}, d.prefixer("[api]", d.out), d.prefixer("[api]", d.errW), d.exits)
 	if err != nil {

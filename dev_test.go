@@ -951,6 +951,28 @@ func TestDevChildEnvCarriesTheColorDecision(t *testing.T) {
 	}
 }
 
+// The API child — and only it — gets the dev-spans handshake: the otel
+// preset's span printer turns on under this loop and nowhere else, and the
+// colour contract rides along untouched (NO_COLOR included: spans still
+// print, plain).
+func TestDevAPIEnvExportsDevSpans(t *testing.T) {
+	setEnv(t, map[string]string{"NO_COLOR": "", "FORCE_COLOR": "", "CLICOLOR_FORCE": "", "TERM": "xterm"})
+	forceTerminal(t, false)
+	d := newDevLoop(t.TempDir(), devOptions{}, os.Stdout, os.Stderr)
+	if got := d.apiEnv(); !slices.Contains(got, "ULTRA_DEV_SPANS=1") {
+		t.Fatalf("apiEnv = %v, want the ULTRA_DEV_SPANS=1 handshake", got)
+	}
+	if slices.Contains(d.webEnv(), "ULTRA_DEV_SPANS=1") {
+		t.Fatalf("the frontend child must not inherit the spans handshake: %v", d.webEnv())
+	}
+
+	setEnv(t, map[string]string{"NO_COLOR": "1"})
+	got := d.apiEnv()
+	if !slices.Contains(got, "ULTRA_DEV_SPANS=1") || !slices.Contains(got, "NO_COLOR=1") {
+		t.Fatalf("NO_COLOR keeps the handshake and the no: %v", got)
+	}
+}
+
 // The banners are the loop's whole UI, and the glyph is what the eye lands on
 // while the compiler scrolls past. Colour follows the WRITER: stderr may be a
 // log while stdout is a terminal.
