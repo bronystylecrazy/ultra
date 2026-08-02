@@ -325,6 +325,100 @@ func TestDevWatcherIdleRescanDoesNotGrowTheWatchSet(t *testing.T) {
 	}
 }
 
+// ---- the attribute-only gate ----
+
+// THE go.sum incident, as a regression test. `go build` write-opens go.sum on
+// every build, and macOS answers the first such open from a new process
+// lineage by stamping a security xattr — a bare Chmod event with the mtime
+// unmoved, on a watched build input, caused by the loop's OWN build. On
+// ultrastack-site that restarted `ultra dev` with no user change in flight.
+// An attribute-only event must rebuild ONLY when the fingerprint moved: the
+// stamp never, `touch main.go` always.
+func TestDevWatcherDropsAttributeOnlyStamps(t *testing.T) {
+	root := watchTree(t, nil, []string{"main.go", "go.mod", "go.sum", "internal/app/app.go"})
+	_, _, changes := startRescanWatcher(t, root)
+	goSum := filepath.Join(root, "go.sum")
+
+	// An xattr stamp is not portably scriptable; a permission flip is the
+	// same event — attributes changed, bytes and mtime identical.
+	must(t, os.Chmod(goSum, 0o600))
+	select {
+	case p := <-changes:
+		t.Fatalf("an attribute-only change on %q restarted the loop — this is the ultrastack-site incident", p)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	// The reflex the gate must NOT break: touch moves the mtime, and "touch
+	// it to rebuild" keeps working.
+	future := time.Now().Add(2 * time.Second)
+	must(t, os.Chtimes(filepath.Join(root, "main.go"), future, future))
+	select {
+	case p := <-changes:
+		if p != "main.go" {
+			t.Fatalf("touch delivered %q, want main.go", p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("touch main.go no longer rebuilds — the gate over-corrected")
+	}
+
+	// And a real write still rebuilds, of course.
+	must(t, os.WriteFile(goSum, []byte("example.com/x v1.0.0 h1:y\n"), 0o600))
+	select {
+	case p := <-changes:
+		if p != "go.sum" {
+			t.Fatalf("write delivered %q, want go.sum", p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a real go.sum write was swallowed")
+	}
+}
+
+// ---- the loop breaker ----
+
+// The guard's discriminator: a human's batches vary, a self-trigger repeats
+// exactly. Same set five times inside the window trips; anything else builds.
+func TestDevGuardTripsOnlyOnARepeatingPathSet(t *testing.T) {
+	base := time.Unix(1000, 0)
+	at := func(ms int) time.Time { return base.Add(time.Duration(ms) * time.Millisecond) }
+
+	var g devGuard
+	for i := range 4 {
+		if v := g.observe([]string{"gen.go"}, at(i*600)); v != guardBuild {
+			t.Fatalf("batch %d = %v, want guardBuild", i+1, v)
+		}
+	}
+	if v := g.observe([]string{"gen.go"}, at(4*600)); v != guardTrip {
+		t.Fatalf("fifth identical batch = %v, want guardTrip", v)
+	}
+	if v := g.observe([]string{"gen.go"}, at(5*600)); v != guardIgnore {
+		t.Fatalf("post-trip batch = %v, want guardIgnore — one diagnostic, not five a second", v)
+	}
+
+	// A different path set is a human at work: full reset, builds again.
+	if v := g.observe([]string{"main.go"}, at(6*600)); v != guardBuild {
+		t.Fatalf("a different file after a trip = %v, want guardBuild", v)
+	}
+
+	// And the tripped path itself builds again once it has gone quiet for a
+	// window — the self-trigger fires per cycle, so quiet means it stopped.
+	g = devGuard{}
+	for i := range 5 {
+		g.observe([]string{"gen.go"}, at(i*600))
+	}
+	calm := at(5*600).Add(devLoopWindow + time.Second)
+	if v := g.observe([]string{"gen.go"}, calm); v != guardBuild {
+		t.Fatalf("the same file after a quiet window = %v, want guardBuild — a real save must not be ignored forever", v)
+	}
+
+	// Five batches SPREAD past the window never trip: slow is not looping.
+	g = devGuard{}
+	for i := range 8 {
+		if v := g.observe([]string{"gen.go"}, base.Add(time.Duration(i)*4*time.Second)); v != guardBuild {
+			t.Fatalf("slow batch %d = %v, want guardBuild", i+1, v)
+		}
+	}
+}
+
 // ---- debounce and coalesce ----
 
 // A save burst is one rebuild, and the batch is de-duplicated and sorted so
@@ -534,6 +628,95 @@ func main() {
 	os.WriteFile(filepath.Join(wd, fmt.Sprintf("term-%%d", os.Getpid())), []byte(version), 0o644)
 }
 `
+
+// devSelfTrigger is the loop-breaker's nemesis, distilled: a product whose
+// binary writes a watched .go file with DIFFERENT bytes on every boot — the
+// nondeterministic boot-time generator. Build → serve → stamp → event →
+// rebuild, forever, with no user in the room.
+const devSelfTrigger = `package main
+
+import (
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+)
+
+func main() {
+	if len(os.Args) > 1 {
+		fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
+		os.Exit(2)
+	}
+	os.WriteFile("boot_stamp.go", []byte(fmt.Sprintf("package main\n\n// stamp %d\n", time.Now().UnixNano())), 0o644)
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM)
+	fmt.Println("listening")
+	<-sigs
+}
+`
+
+// The loop-breaker, end to end over the real machinery: real fsnotify, real
+// builds, a real process whose boot re-triggers the watcher every cycle. The
+// guard must trip with the coded diagnostic naming the path, keep the last
+// good binary serving, and stop rebuilding.
+func TestDevLoopBreakerStopsASelfTriggeringTree(t *testing.T) {
+	skipIfNoProcessSupervision(t)
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module devfixture\n\ngo 1.26.3\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(root, "main.go"), []byte(devSelfTrigger), 0o644))
+	d, _, errOut := newTestLoop(t, root)
+	// The wall clock of a loaded CI box must not decide whether five cycles
+	// "fit the window": only repetition should.
+	d.guard.window = 5 * time.Minute
+
+	// run()'s plumbing, minus the signal handling this test cannot use.
+	w, err := newDevWatcher(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { w.Close() })
+	changes := make(chan string, 512)
+	batches := make(chan []string)
+	stop := make(chan struct{})
+	defer close(stop)
+	go w.pump(changes, io.Discard)
+	go devBatch(changes, batches, 30*time.Millisecond, stop)
+
+	d.cycle(nil) // first serve: the boot stamp lands and the loop starts feeding itself
+	deadline := time.After(90 * time.Second)
+	for !strings.Contains(errOut.String(), "DEV0101") {
+		select {
+		case files := <-batches:
+			d.onBatch(files)
+		case <-deadline:
+			t.Fatalf("the self-triggering tree never tripped the breaker; stderr:\n%s", errOut.String())
+		}
+	}
+	if !strings.Contains(errOut.String(), "boot_stamp.go") {
+		t.Errorf("the diagnostic must NAME the triggering path, got:\n%s", errOut.String())
+	}
+	if !d.api.alive() {
+		t.Fatal("the breaker took the app down — it must keep the last good binary serving")
+	}
+
+	// Tripped means stopped: the batch already in flight is ignored, the pid
+	// does not move, and the diagnostic is not repeated per cycle.
+	pid := d.api.pid()
+	trips := strings.Count(errOut.String(), "DEV0101")
+	select {
+	case files := <-batches:
+		d.onBatch(files)
+	case <-time.After(3 * time.Second):
+		// No further batch: the loop stopped rebuilding, so the stamper stopped stamping.
+	}
+	if d.api.pid() != pid {
+		t.Fatal("a post-trip batch still rebuilt — the breaker did not break the loop")
+	}
+	if got := strings.Count(errOut.String(), "DEV0101"); got != trips {
+		t.Errorf("the diagnostic repeated (%d → %d) — one lesson, not a new banner per cycle", trips, got)
+	}
+}
 
 // devFixtureRoot writes a hermetic one-file module and returns its directory.
 func devFixtureRoot(t *testing.T, version string) string {

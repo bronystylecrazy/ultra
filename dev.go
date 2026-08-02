@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/bronystylecrazy/ultrastack/di/diag"
 )
 
 // `ultra dev` is the whole inner loop in ONE terminal.
@@ -67,6 +69,15 @@ const (
 	// devStopGrace is how long a SIGTERMed backend gets to run its
 	// reverse-order Stop before the group is killed.
 	devStopGrace = 10 * time.Second
+
+	// devLoopTrip rebuilds inside devLoopWindow, every one triggered by the
+	// SAME path set, is a loop feeding itself — no editor and no agent saves
+	// one file five times in ten seconds and nothing else. The go.sum
+	// restart-loop incident burned an afternoon because the loop could not
+	// say what kept retriggering it; the breaker exists so the NEXT cause
+	// names itself (error[DEV0101]) instead.
+	devLoopTrip   = 5
+	devLoopWindow = 10 * time.Second
 )
 
 type devOptions struct {
@@ -154,6 +165,74 @@ type devLoop struct {
 	api   *managedProc
 	web   *managedProc
 	exits chan *managedProc
+	guard devGuard
+}
+
+// devGuard is the loop-breaker: the last line of defence when, despite the
+// exclusions and the fingerprint gate, something still manages to change a
+// watched build input on every cycle — a boot-time generator emitting
+// nondeterministic bytes into the tree is the canonical way. Without it, that
+// bug presents as a silent ~600ms rebuild loop and costs whoever hits it the
+// afternoon of instrumentation it cost us; with it, the loop stops itself and
+// names the path.
+type devGuard struct {
+	sig     string // the batch's path set, joined — identity across cycles
+	times   []time.Time
+	last    time.Time
+	tripped bool
+
+	// trip and window default to the devLoop* constants; tests set them
+	// directly — a loop breaker cannot be asserted against the wall clock
+	// a CI machine actually has.
+	trip   int
+	window time.Duration
+}
+
+type guardVerdict int
+
+const (
+	guardBuild  guardVerdict = iota
+	guardTrip                // the batch that crossed the line: diagnose, do not build
+	guardIgnore              // still looping on the same paths: already diagnosed
+)
+
+// observe decides what one batch means. Any change of path set resets the
+// count — a human's edits vary, a self-trigger repeats exactly. A tripped
+// guard stays tripped only while the same set keeps arriving inside the
+// window: the self-trigger fires per cycle, so once building stops it goes
+// quiet, and a genuinely new save of the same file later builds again.
+// limits are the effective thresholds: the constants unless a test overrode.
+func (g *devGuard) limits() (trip int, window time.Duration) {
+	trip, window = g.trip, g.window
+	if trip == 0 {
+		trip = devLoopTrip
+	}
+	if window == 0 {
+		window = devLoopWindow
+	}
+	return trip, window
+}
+
+func (g *devGuard) observe(files []string, now time.Time) guardVerdict {
+	trip, window := g.limits()
+	sig := strings.Join(files, "\x00")
+	quiet := now.Sub(g.last) > window
+	g.last = now
+	if sig != g.sig || (g.tripped && quiet) {
+		g.sig, g.times, g.tripped = sig, nil, false
+	}
+	if g.tripped {
+		return guardIgnore
+	}
+	g.times = append(g.times, now)
+	for len(g.times) > 0 && now.Sub(g.times[0]) > window {
+		g.times = g.times[1:]
+	}
+	if len(g.times) >= trip {
+		g.tripped = true
+		return guardTrip
+	}
+	return guardBuild
 }
 
 func newDevLoop(root string, opts devOptions, out, errW io.Writer) *devLoop {
@@ -264,7 +343,7 @@ func (d *devLoop) run() int {
 	for {
 		select {
 		case files := <-batches:
-			d.cycle(files)
+			d.onBatch(files)
 		case p := <-d.exits:
 			d.reportExit(p)
 		case <-sigs:
@@ -274,6 +353,25 @@ func (d *devLoop) run() int {
 			d.stopAll()
 			return 0
 		}
+	}
+}
+
+// onBatch is one batch through the loop-breaker: build it, or — when the same
+// path set has retriggered devLoopTrip rebuilds inside devLoopWindow — refuse,
+// say why once, and keep serving. The previous binary stays up either way.
+func (d *devLoop) onBatch(files []string) {
+	switch d.guard.observe(files, time.Now()) {
+	case guardTrip:
+		trip, window := d.guard.limits()
+		d.say(d.errW, "✗", "error[DEV0101]: restart loop broken — %s retriggered %d rebuilds in %s with no other change",
+			strings.Join(files, ", "), trip, window)
+		fmt.Fprintf(d.errW, "  something in the cycle itself is rewriting that path — a boot-time generator with nondeterministic output is the usual culprit\n"+
+			"  still serving pid %d; a change to any other file resumes rebuilds, and so does this path going quiet\n"+
+			"  more: ultra explain DEV0101\n", d.api.pid())
+	case guardIgnore:
+		// Diagnosed one batch ago; repeating it every 600ms is the loop's noise.
+	default:
+		d.cycle(files)
 	}
 }
 
@@ -511,4 +609,31 @@ func (d *devLoop) reportExit(p *managedProc) {
 func (d *devLoop) stopAll() {
 	d.web.stop(d.grace)
 	d.api.stop(d.grace)
+}
+
+// DEV0101 is the first code in the dev family: cmd/ultra's own loop, not the
+// kernel's and not a preset's. Registered here so `ultra explain DEV0101`
+// answers in the binary that printed it.
+func init() {
+	diag.Register("DEV0101", `DEV0101 — ultra dev broke a self-sustained restart loop
+
+The same path set triggered five rebuilds inside ten seconds with nothing
+else changing. No editor works like that; a loop feeding itself does. The
+watcher already refuses ultra dev's own exhaust (openapi.json, the generated
+client, .ultradev/) and attribute-only churn (macOS stamping an xattr on
+go.sum during the loop's own build — the incident that bought this code), so
+what remains is almost always the product: something that runs EVERY cycle —
+a boot-time generator, a go:generate step wired into the build, a tool the
+app execs at startup — writing a watched .go file, go.mod or go.sum with
+bytes that differ run to run.
+
+Find it: the diagnostic names the path. Ask what writes that path, then make
+the writer deterministic (sorted maps, stable timestamps) or write only when
+the bytes actually changed — writeIfChanged is the house pattern. Output that
+is honestly derived belongs in an ignored location instead (.ultradev/, a
+dot-directory, web/).
+
+The loop is not down: the last good binary keeps serving, saving any other
+file resumes rebuilds, and the named path resumes too once it stops
+retriggering for ten seconds.`)
 }
