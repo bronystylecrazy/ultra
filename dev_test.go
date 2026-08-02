@@ -405,7 +405,7 @@ func TestDevGuardTripsOnlyOnARepeatingPathSet(t *testing.T) {
 	for i := range 5 {
 		g.observe([]string{"gen.go"}, at(i*600))
 	}
-	calm := at(5*600).Add(devLoopWindow + time.Second)
+	calm := at(5 * 600).Add(devLoopWindow + time.Second)
 	if v := g.observe([]string{"gen.go"}, calm); v != guardBuild {
 		t.Fatalf("the same file after a quiet window = %v, want guardBuild — a real save must not be ignored forever", v)
 	}
