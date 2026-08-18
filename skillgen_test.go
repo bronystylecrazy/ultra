@@ -49,11 +49,18 @@ func TestReferencesUpToDate(t *testing.T) {
 //	           sketches whose real signatures are already `go doc` blocks below
 //	           them.
 //
+//	product.md  the v3 assembly and the v3 feature shape. Their compiled
+//	            twins live in the web module's own tests (web/e2e_test.go),
+//	            which this repo's snip machinery cannot reach — web/ is a
+//	            NESTED Go module the root toolchain does not compile — so the
+//	            two blocks are hand-written and the scaffold covenant compiles
+//	            the real thing on every run instead.
+//
 // If you add a deliberate fragment, bump the count here and say why — a
 // regression should be a conscious act, not drift.
 var handWrittenGoBlocks = map[string]int{
 	"kernel.md":  4,
-	"product.md": 0,
+	"product.md": 2,
 }
 
 func TestReferenceSnippetsAreCompiled(t *testing.T) {
