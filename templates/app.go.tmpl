@@ -25,9 +25,12 @@ package app
 // di.Options; it collects no values. A module var included twice — the
 // diamond — registers once, by value identity.)
 //
-// Cross-feature seams live here too, and only here. Features never import
-// features: the CONSUMER declares the interface it needs, someone
-// implements it, and this file binds the two —
+// The import law (v3): features MAY import sibling features, ONE direction —
+// `ultra vet` lists the surface as note[UV0010]. A would-be cycle cannot
+// compile, and wanting one is a design signal with three exits: move the
+// shared logic down (internal/kind), publish an event, or merge the features.
+// When you WANT compile-time decoupling instead, the seam lives here: the
+// CONSUMER declares the interface it needs, and this file binds the two —
 //
 //	di.Alias[telemetry.Recorder, *violations.Store](),
 //

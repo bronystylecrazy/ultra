@@ -39,6 +39,11 @@ sql:
         out: "gen"
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
+        # Pointer rows: :one returns *Note, :many returns []*Note — the
+        # handler standard's pointer-response law (*T out, nil only beside an
+        # error) starts at the querier. The ultra plugin reads this line too
+        # and spells gen/factory and the page wrappers to match.
+        emit_result_struct_pointers: true
         # Overrides (uuid → uuid.UUID, timestamptz → time.Time) go on the
         # NON-NULL types only: `nullable: true` overrides make sqlc v1.31.1
         # emit duplicate imports. Wrap sqlc.narg() params at the call site.

@@ -14,6 +14,7 @@ import "hash/fnv"
 const (
 	httpPortLo, httpPortHi = 8100, 8999
 	e2ePortLo, e2ePortHi   = 9100, 9899
+	mqttPortLo, mqttPortHi = 11883, 12799
 )
 
 // reservedPorts are the ports inside those ranges that a developer machine is
@@ -54,5 +55,8 @@ func (d *scaffoldData) fillPorts() {
 	}
 	if d.E2EPort == 0 {
 		d.E2EPort = derivePort(d.Name, "e2e", e2ePortLo, e2ePortHi)
+	}
+	if d.MQTTPort == 0 {
+		d.MQTTPort = derivePort(d.Name, "mqtt", mqttPortLo, mqttPortHi)
 	}
 }

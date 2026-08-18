@@ -29,6 +29,13 @@ format = "auto"  # console|json|auto
 # TestWiring. Per request: ?lang > ultra_lang cookie > Accept-Language > default.
 locales = ["en", "th"]
 default = "en"
+{{if .MQTT}}
+[mqtt]
+# The embedded broker's TCP bind. Derived from the product name (11883–12799)
+# for the same reason [http] addr is — two products' brokers must not fight
+# over :1883 on one machine. Devices dial this port.
+listen = ":{{.MQTTPort}}"
+{{end}}
 {{if .DB}}
 [postgres]
 # The dev container in docker-compose.dev.yml is DERIVED from this line

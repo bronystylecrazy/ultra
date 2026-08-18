@@ -8,7 +8,7 @@ export const prerender = false;
 // The imports ride INSIDE the markers: delete marker-to-marker and what is
 // left is a complete, valid +layout.ts with no dangling references.
 import { redirect } from '@sveltejs/kit';
-import { session } from '$lib/api/auth.svelte';
+import { session } from '$lib/auth.svelte';
 import type { LayoutLoad } from './$types';
 
 // The guard, in the ONE place every route passes through: with auth.Protect

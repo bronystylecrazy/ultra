@@ -1,17 +1,10 @@
 # The English catalog. The wire carries stable codes; these files carry the
 # words — the message key IS the error code (one taxonomy), and `{param}`
 # names must match the problem's params. A key missing from one locale fails
-# TestWiring (I18N0202); `./app client` derives web/src/lib/i18n from here.
+# TestWiring (I18N0202). Problem messages render from here in the request's
+# locale, so the frontend shows the server's words — never invented copy.
 
 "app.greeting" = "Welcome to {{.Name}}, {name}"
-{{if and .Web .Auth}}
-# The scaffolded login page (web/src/routes/login) — its copy, and nothing
-# else. Replace the page and these move with it.
-"login.title"    = "Sign in to {{.Name}}"
-"login.username" = "{{.Login.Username}}"
-"login.password" = "{{.Login.Password}}"
-"login.submit"   = "{{.Login.Submit}}"
-{{end}}
 {{- if .Auth}}
 # contrib/auth's own codes, so a rejected sign-in reads as words — on the wire
 # for an API client, and through localize() on the login page.

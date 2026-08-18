@@ -285,9 +285,10 @@ func tableAlreadyThere(name string, dirs ...string) string {
 var storeDeclRe = regexp.MustCompile(`(?m)^type Store struct\b`)
 
 // planStore settles what the feature needs BEFORE anything is written: a whole
-// Store, or methods on the one it already has. Every refusal reachable here
-// belongs here — a collision discovered halfway through writeTable leaves a
-// migration and five queries on disk in front of a build that fails.
+// Store (store.go — the rung-2 grammar), or methods on the one it already has
+// (a plain-noun file). Every refusal reachable here belongs here — a collision
+// discovered halfway through writeTable leaves a migration and five queries on
+// disk in front of a build that fails.
 func planStore(dir string, d *tableData) error {
 	feat := filepath.Join(dir, "internal", "app", d.Feature)
 	entries, _ := os.ReadDir(feat)
@@ -300,11 +301,21 @@ func planStore(dir string, d *tableData) error {
 			break
 		}
 	}
-	store := filepath.Join("internal", "app", d.Feature, d.Singular+".go")
+	store := filepath.Join("internal", "app", d.Feature, storeFile(d))
 	if _, err := os.Stat(filepath.Join(dir, store)); err == nil {
 		return fmt.Errorf("%s already exists — refusing to overwrite, and nothing was written", store)
 	}
 	return nil
+}
+
+// storeFile is where this table's Go half lands: the FIRST table brings the
+// Store itself on the contract grammar's page (store.go); every later table
+// adds methods in a plain-noun file beside it.
+func storeFile(d *tableData) string {
+	if d.StoreIn != "" {
+		return d.Singular + ".go"
+	}
+	return "store.go"
 }
 
 // writeTable renders the migration, the queries and (unless --no-store) the
@@ -341,32 +352,40 @@ func writeTable(dir string, d *tableData, migration string, noStore bool) ([]str
 	}
 
 	feat := filepath.Join("internal", "app", d.Feature)
-	files := map[string]string{}
 	if _, err := os.Stat(filepath.Join(dir, feat)); err != nil {
-		files["feature.go.tmpl"] = filepath.Join(feat, d.Feature+".go")
-		files["feature_errors.go.tmpl"] = filepath.Join(feat, "errors.go")
+		// A fresh feature starts at rung 1: the one-file front page.
+		files := map[string]string{"feature.go.tmpl": filepath.Join(feat, d.Feature+".go")}
 		if err := renderAll(dir, files, scaffoldData{Name: d.Feature}); err != nil {
 			return nil, err
 		}
-		written = append(written, filepath.Join(feat, d.Feature+".go"), filepath.Join(feat, "errors.go"))
+		written = append(written, filepath.Join(feat, d.Feature+".go"))
 	}
 	// A feature holds ONE Store. The first table brings the type and the
-	// constructor; every table after it brings methods on that same Store,
-	// named for the table they are about — planStore decided which this is,
-	// before a byte was written.
+	// constructor on store.go (the rung-2 grammar); every table after it
+	// brings methods on that same Store, in a file named for the table they
+	// are about — planStore decided which this is, before a byte was written.
 	tmpl := "table/store.go.tmpl"
 	if d.StoreIn != "" {
 		tmpl = "table/store_methods.go.tmpl"
 	}
-	store := filepath.Join(feat, d.Singular+".go")
+	store := filepath.Join(feat, storeFile(d))
 	if err := renderAll(dir, map[string]string{tmpl: store}, d); err != nil {
 		return nil, err
 	}
 	written = append(written, store)
 
 	// Remove distinguishes "was not there" from "failed", so the feature's
-	// contract page needs the sentinel it returns.
+	// contract page needs the sentinel it returns. A rung-1 feature has no
+	// errors.go yet — a table is exactly the content that earns the page.
 	errsPath := filepath.Join(dir, feat, "errors.go")
+	if _, err := os.Stat(errsPath); err != nil {
+		if err := renderAll(dir, map[string]string{
+			"feature_errors.go.tmpl": filepath.Join(feat, "errors.go"),
+		}, scaffoldData{Name: d.Feature}); err != nil {
+			return nil, err
+		}
+		written = append(written, filepath.Join(feat, "errors.go"))
+	}
 	if b, err := os.ReadFile(errsPath); err == nil && !strings.Contains(string(b), "ErrNotFound") {
 		body := strings.TrimRight(string(b), "\n") +
 			fmt.Sprintf("\n\n// ErrNotFound is \"no such row, or not this caller's\" — Remove and Get\n"+

@@ -363,7 +363,10 @@ is a second implementation.`,
 config.toml + Taskfile + AGENTS.md.
 
 --db --web --auth are ON by default; --bare turns all three off, and a
-later --db/--web/--auth turns one back on.
+later --db/--web/--auth turns one back on. --mqtt is the one OPT-IN
+capability: it wires the embedded broker (mqtt.Use + auth.APIKeys) and the
+mqtt feature surface — most products have no device edge, and main.go's
+growth comment names the lines when one arrives.
 
 --ds picks the frontend's design system (--web only). connected (the
 default) wires @connected/svelte-connected-design from the depot registry, so
@@ -384,6 +387,7 @@ convert YAML first.`,
 					{"--db, --no-db", "Postgres pool + migrations (on by default)"},
 					{"--web, --no-web", "the SvelteKit frontend (on by default)"},
 					{"--auth, --no-auth", "identity + route enforcement (on by default)"},
+					{"--mqtt, --no-mqtt", "the embedded MQTT broker + feature Events (OFF by default; needs --auth)"},
 					{"--ds connected|bare", "the design system for --web (default: connected)"},
 					{"--from openapi.json", "reverse-scaffold from an OpenAPI 3.x document"},
 				},
@@ -392,12 +396,12 @@ convert YAML first.`,
 						name:  "feature",
 						args:  "<name>",
 						short: "one file at internal/app/<name>/<name>.go",
-						long: `Write the single-file collapse form of a feature package: one file
-exporting Module — its wiring, its Handler, and the fluent route table to
-fill in — plus its errors.go.
+						long: `Write RUNG 1 of the feature ladder: ONE file exporting Module — its
+wiring (web.Provide(NewAPI)), the API component, the fluent route table to
+fill in, and the scope/code/sentinel vocabulary as comments.
 
-Manifest files (handler.go, service.go, types.go) are NOT scaffolded —
-they appear when content demands them, which is the doctrine's growth
+The rung-2 files (api.go, events.go, store.go, errors.go) are NOT
+scaffolded — they appear when content demands them, which is the doctrine's growth
 rule. Run it from the product root; one line in app.go finishes the job.`,
 					},
 					{

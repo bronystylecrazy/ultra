@@ -1,0 +1,26 @@
+# {{.Name}} — domain context
+
+The ubiquitous language lives HERE. One page: the domain's nouns, spelled the
+way the whole product spells them — package names, route paths, scope strings,
+table names, TypeScript types and ticket prose all use THESE words. A concept
+that needs renaming gets renamed here first, then everywhere, in one landing.
+
+Agents and humans read this before naming anything. Keep it short; a glossary
+nobody maintains is worse than none.
+
+## Glossary
+
+| Term | Meaning | Spelled in code as |
+|---|---|---|
+| _e.g. inspection_ | _one pass of a device over a wire_ | `inspections` (feature), `Inspection` (type), `inspections.read` (scope) |
+
+## Actors
+
+Who calls this product, and with what identity — a human role, a device fleet,
+a sibling service. One line each.
+
+## Boundaries
+
+What this product deliberately does NOT own (the system of record elsewhere,
+the upstream that publishes what we consume). A sentence per boundary saves a
+feature per misunderstanding.

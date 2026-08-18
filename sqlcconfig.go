@@ -40,8 +40,9 @@ func readTypeConfig(dir string, codegen sqlcCodegen, errW io.Writer) typeConfig 
 		return typeConfig{overrides: options}
 	}
 	cfg := typeConfig{
-		overrides: typeOverridesOf(gen["overrides"]),
-		pointers:  truthy(gen["emit_pointers_for_null_types"]),
+		overrides:      typeOverridesOf(gen["overrides"]),
+		pointers:       truthy(gen["emit_pointers_for_null_types"]),
+		resultPointers: truthy(gen["emit_result_struct_pointers"]),
 	}
 	// The twin `options:` block is no longer load-bearing, but a product that
 	// edited one list and not the other is a product whose two halves disagree

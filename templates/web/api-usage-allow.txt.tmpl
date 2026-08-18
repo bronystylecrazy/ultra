@@ -22,3 +22,7 @@
 # Rules: raw-fetch, hand-rolled-hook, swallowed-error. A bare path allows all
 # three in that file. An entry nothing matches is reported as a note, so this
 # file stays honest as the screens change.
+{{- if .Auth}}
+
+src/lib/auth.svelte.ts:raw-fetch  # the session store IS the auth surface — /auth endpoints are stack routes outside the generated contract
+{{- end}}

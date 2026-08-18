@@ -1,4 +1,5 @@
 {
+{{- if .From}}
 {{- if .Auth}}
   "/auth": {
     "ws": false
@@ -19,4 +20,23 @@
   "/v1": {
     "ws": true
   }
+{{- else}}
+  "/api": {
+    "ws": true
+  },
+{{- if .Auth}}
+  "/auth": {
+    "ws": false
+  },
+{{- end}}
+  "/healthz": {
+    "ws": false
+  },
+  "/metrics": {
+    "ws": false
+  },
+  "/ops": {
+    "ws": false
+  }
+{{- end}}
 }

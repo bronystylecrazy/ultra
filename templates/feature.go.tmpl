@@ -1,9 +1,14 @@
 // Package {{.Name}} — <one line describing what this feature owns>.
+//
+// RUNG 1 of the feature ladder: the whole feature on one page. It splits into
+// the named files (api.go, events.go, store.go, errors.go) when content
+// demands them — never before. RUNG 3 (a child package, one level) is for a
+// feature past ~8 files or a second route prefix; `ultra vet` nudges (UV0009).
 package {{.Name}}
 
 import (
-	"github.com/bronystylecrazy/ultrastack/contrib/api"
 	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/ultrastack/web"
 )
 
 // Module is the front page of the feature: its whole wiring at a glance, as
@@ -11,38 +16,97 @@ import (
 // IS the package name (di.Pkg() self-names instead, if you prefer no string).
 var Module = di.Module("{{.Name}}",
 	// di.Provide(NewStore),
-	api.Handler(NewHandler), // provides the constructor AND its route table
+	web.Provide(NewAPI), // registration-checked: no Handle(web.Router) method = WEB0201
+	// mqtt.Provide(NewEvents), // the bus surface is its OWN component (events.go)
 )
 
-// Handler is the feature's API surface: one component, constructed by DI like
-// any other, holding the services its handlers need.
-type Handler struct{}
+// Scopes are contract surface: named constants, never literals at a call
+// site (UV0011). [auth.roles] in config.toml grants them to roles.
+const ReadScope = web.Scope("{{.Name}}.read")
 
-func NewHandler() *Handler { return &Handler{} }
+// const WriteScope = web.Scope("{{.Name}}.write")
 
-// Routes is the whole route table, read top to bottom. The path IS the name:
-// a collection ends in the noun (GET /{{.Name}} → {{.Name}}.list), an item ends
-// in the parameter (GET /{{.Name}}/{id} → {{.Name}}.get) — shape the path for
-// the name you want, and .Name(...) when two paths would derive one.
-func (h *Handler) Routes(r *api.Router) {
-	// g := r.Group("/{{.Name}}", api.Require("{{.Name}}.read"))
-	// g.Get("", h.list)
-	// g.Get("/{id}", h.get).Codes(CodeNotFound)
-	// g.Post("", h.create).Require("{{.Name}}.write").Invalidates("{{.Name}}")
+// Error codes are contracts: stable machine discriminators clients localize
+// from. They ride web.Fail's problem envelope, land in x-error-codes and the
+// client's typed error unions (declare them on routes with .Fails). Never
+// rename a shipped code — add a new one.
+const (
+// CodeNotFound = "{{.Name}}.not_found"
+// CodeBadID    = "{{.Name}}.bad_id"
+)
+
+// Sentinels are errors.Is targets for branching INSIDE the feature. Driver
+// sentinels (pgx.ErrNoRows and friends) die in store.go — a store method
+// translates them here, so handlers branch on the domain's vocabulary:
+//
+//	var ErrNotFound = errors.New("{{.Name}}: not found")
+
+// API is the feature's HTTP surface: one component, constructed by DI like
+// any other, holding the services its handlers need. One transport per
+// struct — a bus surface is a second component (Events) with its own
+// Handle(mqtt.Router).
+type API struct {
+	// store *Store
 }
 
-// Handlers are plain methods: ctx and a typed request in, the typed response
-// and an error out. Request payloads are <Op>Req and live beside the handler
-// (they ARE the contract); responses are domain nouns.
+func NewAPI() *API { return &API{} }
+
+// Handle is the route table, read top to bottom: the chain declares the
+// contract, the preset derives enforcement, OpenAPI, and the TS client.
+// DECLARATION ORDER IS MATCH ORDER — static routes before parameterized
+// siblings ("/ping" before "/:id"), or ":id" swallows them.
+func (a *API) Handle(router web.Router) {
+	// g := router.Group("/api/v1/{{.Name}}").Require(ReadScope) // group default; Require REPLACES, never stacks
+	//
+	// g.Get("/", a.List).
+	//	Produce[[]Thing]() // response type → the 200 schema + the client return type
+	//
+	// g.Get("/:id", a.Get).
+	//	Produce[Thing]().
+	//	Fails(http.StatusNotFound, CodeNotFound) // status + code → spec + TS error union
+	//
+	// g.Post("/", web.RateLimit(60), a.Create). // inline middleware; the LAST arg is the handler
+	//	Accept[CreateThingReq]().               // JSON request body type
+	//	Produce[Thing]().
+	//	Require(WriteScope). // REPLACES the group default
+	//	Fails(http.StatusUnprocessableEntity, CodeBadPayload)
+	//
+	// g.Post("/reindex", a.Reindex).Internal()                  // typed + enforced, out of spec and client
+	// g.Get("/:id/stream", a.Stream).Undocumented("MJPEG — no JSON contract") // reason REQUIRED (WEB0203)
+	//
+	// router.Use(web.RequestLog()) // router-wide middleware, before group and inline
+}
+
+// Handlers are raw fiber: the binding is yours, the status decisions are
+// yours, failures ride the shared envelope through web.Fail. Two laws:
 //
-//	type GetReq struct {
-//	    ID string `path:"id"`
+//   - SINGLE-PURPOSE RETURNS: after any branch on err, never `return v, err`
+//     — return the success (v, nil) or the failure (zero, err), one purpose
+//     per return. Pass-through delegation (`return a.store.Get(...)`) is the
+//     legal exception: no branch happened here.
+//   - diag.Wrap with NAMED facts for unexpected failures — never
+//     fmt.Errorf("%w"): `diag.Wrap(err, "creating {{.Name}}", "id", id)`
+//     carries evidence to the failure log, never the wire.
+//
+//	func (a *API) Get(c fiber.Ctx) error {
+//		id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+//		if err != nil {
+//			return web.Fail(c, http.StatusBadRequest, CodeBadID, "id must be a number")
+//		}
+//		t, err := a.store.Get(c.Context(), id)
+//		if errors.Is(err, ErrNotFound) {
+//			return web.Fail(c, http.StatusNotFound, CodeNotFound, "no {{.Name}} %d", id)
+//		}
+//		if err != nil {
+//			return err // unexpected: 5xx, auto-redacted, chain in the failure log
+//		}
+//		return c.JSON(&t) // pointer responses: *T out, nil only beside an error
 //	}
 //
-//	func (h *Handler) get(ctx context.Context, req GetReq) (Thing, error) {
-//	    t, err := h.store.Get(ctx, req.ID)
-//	    if errors.Is(err, ErrNotFound) {
-//	        return Thing{}, api.Fail(404, CodeNotFound, "no thing %q", req.ID)
-//	    }
-//	    return t, err
+//	func (a *API) Create(c fiber.Ctx) error {
+//		var req CreateThingReq
+//		if err := c.Bind().Body(&req); err != nil { // EXPLICIT bind — no magic
+//			return web.Fail(c, http.StatusUnprocessableEntity, CodeBadPayload, "%v", err)
+//		}
+//		...
 //	}

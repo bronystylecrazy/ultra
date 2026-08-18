@@ -4,9 +4,10 @@
      which is the worst kind of scaffold hole: everything builds, nothing is
      reachable.
 
-     It signs in through the generated session store — the cookie flavor, so
-     the server sets an HttpOnly cookie, this tab holds nothing, and a reload
-     stays signed in. +layout.ts sends anonymous visitors here.
+     It signs in through the scaffold-owned session store ($lib/auth.svelte)
+     — the cookie flavor, so the server sets an HttpOnly cookie, this tab
+     holds nothing, and a reload stays signed in. +layout.ts sends anonymous
+     visitors here.
 
      Replace it with YOUR login (branding, SSO, "forgot password", whatever
      the product needs) and keep +layout.ts pointing at wherever it lives.
@@ -16,9 +17,7 @@
 ──────────────────────────────────────────────────────────────────────── -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { session } from '$lib/api/auth.svelte';
-	import { ApiError } from '$lib/api/common';
-	import { localize, t } from '$lib/i18n/locale.svelte';
+	import { session } from '$lib/auth.svelte';
 {{- if eq .DS "connected"}}
 	import { Button } from '@connected/svelte-connected-design/button';
 	import { Field } from '@connected/svelte-connected-design/field';
@@ -40,11 +39,11 @@
 			await session.signIn({ username, password });
 			await goto('/');
 		} catch (err) {
-			// The problem's OWN message, in the reader's language: localize()
-			// renders the catalog entry for the code (auth.invalid_credentials
-			// and friends are in messages/*.toml) and falls back to the words
-			// the server sent. Never invent copy for a failure the API named.
-			error = err instanceof ApiError ? localize(err) : String(err);
+			// The problem's OWN message: the server renders it from the
+			// messages/*.toml catalogs in the request's locale
+			// (auth.invalid_credentials and friends are keys there). Never
+			// invent copy for a failure the API named.
+			error = err instanceof Error ? err.message : String(err);
 		} finally {
 			busy = false;
 		}
@@ -53,30 +52,30 @@
 
 {{if eq .DS "connected" -}}
 <form class="mx-auto flex w-full max-w-sm flex-col gap-L p-XL" onsubmit={submit}>
-	<h1 class="text-heading-S fg-primary">{t('login.title')}</h1>
-	<Field label={t('login.username')}>
+	<h1 class="text-heading-S fg-primary">Sign in to {{.Name}}</h1>
+	<Field label="{{.Login.Username}}">
 		{#snippet children(control)}
 			<Input {...control} bind:value={username} autocomplete="username" />
 		{/snippet}
 	</Field>
 	<!-- The error rides the password field: Field owns the a11y wiring, and an
 	     empty string is not an error. -->
-	<Field label={t('login.password')} {error}>
+	<Field label="{{.Login.Password}}" {error}>
 		{#snippet children(control)}
 			<Input {...control} bind:value={password} type="password" autocomplete="current-password" />
 		{/snippet}
 	</Field>
-	<Button type="submit" loading={busy}>{t('login.submit')}</Button>
+	<Button type="submit" loading={busy}>{{.Login.Submit}}</Button>
 </form>
 {{- else -}}
 <form class="mx-auto flex w-full max-w-sm flex-col gap-4 p-6" onsubmit={submit}>
-	<h1 class="text-xl font-semibold">{t('login.title')}</h1>
+	<h1 class="text-xl font-semibold">Sign in to {{.Name}}</h1>
 	<label class="flex flex-col gap-1">
-		{t('login.username')}
+		{{.Login.Username}}
 		<input class="rounded border px-2 py-1" bind:value={username} autocomplete="username" />
 	</label>
 	<label class="flex flex-col gap-1">
-		{t('login.password')}
+		{{.Login.Password}}
 		<input
 			class="rounded border px-2 py-1"
 			type="password"
@@ -88,7 +87,7 @@
 		<p class="text-red-600">{error}</p>
 	{/if}
 	<button class="rounded bg-black px-3 py-2 text-white disabled:opacity-50" type="submit" disabled={busy}>
-		{t('login.submit')}
+		{{.Login.Submit}}
 	</button>
 </form>
 {{- end}}

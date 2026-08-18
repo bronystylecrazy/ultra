@@ -659,6 +659,12 @@ func %sError(err error) error {
 }
 
 func emitPage(b *strings.Builder, t *tableGen, p pageGen) {
+	// The element type follows sqlc's own rendering: pointers when the
+	// product's gen.go says emit_result_struct_pointers.
+	elem := p.row
+	if t.types.resultPointers {
+		elem = "*" + p.row
+	}
 	fmt.Fprintf(b, `
 // %s is one page boundary: the ordering tuple of the last row handed out.
 // It is a VALUE, not an offset — a row inserted meanwhile shifts no page.
@@ -673,7 +679,7 @@ func (q *Queries) %sPage(ctx context.Context`, p.cursor, p.cursor, p.query, p.qu
 	for _, o := range p.owners {
 		fmt.Fprintf(b, ", %s %s", o.arg, o.goType)
 	}
-	fmt.Fprintf(b, ", after *%s, size int) ([]%s, bool, error) {\n\targ := %s{", p.cursor, p.row, p.params)
+	fmt.Fprintf(b, ", after *%s, size int) ([]%s, bool, error) {\n\targ := %s{", p.cursor, elem, p.params)
 	for _, o := range p.owners {
 		fmt.Fprintf(b, "%s: %s, ", o.field, o.arg)
 	}
@@ -723,14 +729,20 @@ func emitFactory(t *tableGen, genImport string) string {
 	b.WriteString("package factory\n\n")
 	writeImports(&b, std, ext)
 
+	// Row spelling follows sqlc's own: *gen.Note when the product's gen.go
+	// says emit_result_struct_pointers, gen.Note otherwise.
+	row := "gen." + t.model
+	if t.types.resultPointers {
+		row = "*gen." + t.model
+	}
 	fmt.Fprintf(&b, `// %s inserts one %s row. Every column the insert demands is filled
 // deterministically; the mutators carry the value the test is ABOUT and run
 // last, so a test states only what it is testing.
-func %s(t testing.TB, db gen.DBTX, mut ...func(*gen.%sParams)) gen.%s {
+func %s(t testing.TB, db gen.DBTX, mut ...func(*gen.%sParams)) %s {
 	t.Helper()
 	n := next(t, %q)
 	arg := gen.%sParams{
-`, t.model, t.name, t.model, t.create.Name, t.model, t.name, t.create.Name)
+`, t.model, t.name, t.model, t.create.Name, row, t.name, t.create.Name)
 
 	b.WriteString(fills.String())
 	fmt.Fprintf(&b, `	}
@@ -745,15 +757,15 @@ func %s(t testing.TB, db gen.DBTX, mut ...func(*gen.%sParams)) gen.%s {
 }
 
 // %sN inserts count rows, ascending — the shape a paging test wants.
-func %sN(t testing.TB, db gen.DBTX, count int, mut ...func(*gen.%sParams)) []gen.%s {
+func %sN(t testing.TB, db gen.DBTX, count int, mut ...func(*gen.%sParams)) []%s {
 	t.Helper()
-	rows := make([]gen.%s, 0, count)
+	rows := make([]%s, 0, count)
 	for range count {
 		rows = append(rows, %s(t, db, mut...))
 	}
 	return rows
 }
-`, t.create.Name, t.model, t.model, t.model, t.create.Name, t.model, t.model, t.model)
+`, t.create.Name, t.model, t.model, t.model, t.create.Name, row, row, t.model)
 	return b.String()
 }
 

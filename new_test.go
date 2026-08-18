@@ -29,6 +29,10 @@ var combos = []struct {
 	// web legs cover one design system each.
 	{"bare+web+auth", []string{"--bare", "--web", "--auth", "--ds", "bare"},
 		scaffoldData{Web: true, Auth: true, DS: dsBare}},
+	// The device edge: the opt-in flag, proven end to end — the broker binds
+	// its derived [mqtt] port during the boot smoke.
+	{"bare+auth+mqtt", []string{"--bare", "--auth", "--mqtt"},
+		scaffoldData{Auth: true, MQTT: true}},
 }
 
 func testData(name string, d scaffoldData) scaffoldData {
@@ -55,7 +59,7 @@ func TestScaffoldValidatesInput(t *testing.T) {
 // never comes back.
 func TestFlagsShapeTheTree(t *testing.T) {
 	core := []string{
-		".gitignore", ".mcp.json", "AGENTS.md", "Taskfile.yml", "config.toml", "contract_test.go",
+		".gitignore", ".mcp.json", "AGENTS.md", "CONTEXT.md", "Taskfile.yml", "config.toml", "contract_test.go",
 		"go.mod", "internal/app/app.go", "main.go", "main_test.go",
 		"messages/en.toml", "messages/th.toml",
 	}
@@ -90,7 +94,7 @@ func TestFlagsShapeTheTree(t *testing.T) {
 				want = append(want, web...)
 			}
 			if d.Web && d.Auth {
-				want = append(want, "web/src/routes/login/+page.svelte")
+				want = append(want, "web/src/routes/login/+page.svelte", "web/src/lib/auth.svelte.ts")
 			}
 			if d.DS == dsConnected {
 				want = append(want, "web/.npmrc")
@@ -145,11 +149,33 @@ func TestGoModWiring(t *testing.T) {
 		"go " + scaffoldGoVersion,
 		"ultrastack " + scaffoldVersion,
 		"ultrastack/contrib " + scaffoldVersion,
+		"ultrastack/web " + scaffoldVersion,
 		"// replace github.com/bronystylecrazy/ultrastack => ../ultrastack",
 		"// replace github.com/bronystylecrazy/ultrastack/contrib => ../ultrastack/contrib",
+		"// replace github.com/bronystylecrazy/ultrastack/web => ../ultrastack/web",
 	} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("go.mod missing %q:\n%s", want, b)
+		}
+	}
+
+	// --mqtt adds the fourth module of the set, pinned and replace-commented
+	// like its siblings.
+	mq := testData("speedcheck", scaffoldData{Auth: true, MQTT: true})
+	mdir := filepath.Join(t.TempDir(), mq.Name)
+	if err := scaffold(mdir, mq); err != nil {
+		t.Fatal(err)
+	}
+	mb, err := os.ReadFile(filepath.Join(mdir, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ultrastack/mqtt " + scaffoldVersion,
+		"// replace github.com/bronystylecrazy/ultrastack/mqtt => ../ultrastack/mqtt",
+	} {
+		if !strings.Contains(string(mb), want) {
+			t.Errorf("--mqtt go.mod missing %q:\n%s", want, mb)
 		}
 	}
 }
@@ -504,15 +530,16 @@ func TestAuthWebScaffoldHasADoor(t *testing.T) {
 			login := read("web/src/routes/login/+page.svelte")
 			label := scaffoldData{}.Login()
 
-			// The page signs in through the GENERATED store — not a hand-rolled
-			// fetch that has to relearn the cookie, the problem shape, and the
-			// reload story — and it is marked as the placeholder it is. Not
-			// DELETE ME: a product that enforces auth needs SOME login page.
+			// The page signs in through the scaffold-owned session store — not
+			// a hand-rolled fetch that has to relearn the cookie, the problem
+			// shape, and the reload story — and it is marked as the placeholder
+			// it is. Not DELETE ME: a product that enforces auth needs SOME
+			// login page.
 			for _, want := range []string{
-				"import { session } from '$lib/api/auth.svelte'",
+				"import { session } from '$lib/auth.svelte'",
 				"session.signIn({ username, password })",
-				"localize(err)", // the problem's own message, in the reader's language
-				"t('login.submit')",
+				"err.message", // the problem's own message, localized by the server
+				label.Submit,
 				"REPLACE IT, DO NOT DELETE IT",
 			} {
 				if !strings.Contains(login, want) {
@@ -528,21 +555,26 @@ func TestAuthWebScaffoldHasADoor(t *testing.T) {
 				t.Errorf("--ds %s: Field used = %v:\n%s", ds, used, login)
 			}
 
-			// Every visible string is a key, in EVERY catalog: a key in en and
-			// not th fails the product's own TestWiring with I18N0202.
+			// The session store the guard and the page share: cookie flavor,
+			// /auth/me for identity, and the raw fetches allowlisted where the
+			// API-usage gate looks.
+			store := read("web/src/lib/auth.svelte.ts")
+			for _, want := range []string{"/auth/me", "/auth/login", "/auth/logout", "credentials: 'include'"} {
+				if !strings.Contains(store, want) {
+					t.Errorf("auth.svelte.ts is missing %q:\n%s", want, store)
+				}
+			}
+			if !strings.Contains(read("web/api-usage-allow.txt"), "src/lib/auth.svelte.ts:raw-fetch") {
+				t.Errorf("the session store's raw fetches must be allowlisted with a reason")
+			}
+
+			// The server's words still localize: the auth codes stay in EVERY
+			// catalog (a key in en and not th fails TestWiring with I18N0202).
 			for _, cat := range []string{"messages/en.toml", "messages/th.toml"} {
-				for _, key := range []string{"login.title", "login.username", "login.password",
-					"login.submit", "auth.invalid_credentials"} {
+				for _, key := range []string{"auth.invalid_credentials", "auth.required"} {
 					if !strings.Contains(read(cat), `"`+key+`"`) {
 						t.Errorf("%s is missing %q", cat, key)
 					}
-				}
-			}
-			// The English values ARE the labels the spec types into.
-			en := read("messages/en.toml")
-			for _, v := range []string{label.Username, label.Password, label.Submit} {
-				if !strings.Contains(en, `= "`+v+`"`) {
-					t.Errorf("messages/en.toml must carry the label %q:\n%s", v, en)
 				}
 			}
 
@@ -804,17 +836,19 @@ func TestNewFeatureScaffold(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"package zones", `var Module = di.Module("zones"`, "api.Handler(NewHandler)",
-		"func (h *Handler) Routes(r *api.Router)",
+		"package zones", `var Module = di.Module("zones"`, "web.Provide(NewAPI)",
+		"func (a *API) Handle(router web.Router)",
+		`const ReadScope = web.Scope("zones.read")`,
 	} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("feature file missing %q:\n%s", want, b)
 		}
 	}
-	// No manifest files: they appear when content demands them.
+	// The ONE-FILE RUNG: no manifest files — api.go, events.go, store.go and
+	// errors.go appear when content demands them.
 	entries, _ := os.ReadDir(filepath.Join(dir, "internal", "app", "zones"))
-	if len(entries) != 2 {
-		t.Errorf("a new feature is its front page plus its error contract — 2 files, got %d", len(entries))
+	if len(entries) != 1 {
+		t.Errorf("a new feature is ONE page (the rung-1 collapse), got %d files", len(entries))
 	}
 	if !strings.Contains(out.String(), "zones.Module") {
 		t.Errorf("the next step (one line in app.go) must be printed:\n%s", out.String())
@@ -891,10 +925,13 @@ func TestScaffoldCovenant(t *testing.T) {
 				t.Logf("%s %s\n%s", name, strings.Join(args, " "), out)
 			}
 			// Point the generated product at this checkout instead of the
-			// network — the same two lines the go.mod comment describes.
+			// network — the same lines the go.mod comment describes. The web
+			// and mqtt modules live at the repo root beside contrib.
 			sh("go", "mod", "edit",
 				"-replace="+modulePath+"="+repoRoot,
-				"-replace="+modulePath+"/contrib="+filepath.Join(repoRoot, "contrib"))
+				"-replace="+modulePath+"/contrib="+filepath.Join(repoRoot, "contrib"),
+				"-replace="+modulePath+"/web="+filepath.Join(repoRoot, "web"),
+				"-replace="+modulePath+"/mqtt="+filepath.Join(repoRoot, "mqtt"))
 			sh("go", "mod", "tidy")
 			sh("go", "build", "./...")
 			sh("go", "test", "./...")
@@ -905,8 +942,7 @@ func TestScaffoldCovenant(t *testing.T) {
 			// that does not exist yet), so they must now be on disk...
 			artifacts := []string{"openapi.json"}
 			if d.Web {
-				// The client AND the typed catalogs ride one bootstrap run.
-				artifacts = append(artifacts, "web/src/lib/api/common.ts", "web/src/lib/i18n/index.ts")
+				artifacts = append(artifacts, "web/src/lib/api/common.ts")
 			}
 			for _, f := range artifacts {
 				if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
@@ -978,9 +1014,9 @@ func TestScaffoldCovenant(t *testing.T) {
 				// BOTH design systems: a gate that only fires where depot
 				// answers is a gate that mostly does not fire.
 				assertAPIUsageGated(t, filepath.Join(dir, "web"))
+				assertI18nDormant(t, filepath.Join(dir, "web"))
 				if d.DS == dsConnected {
 					assertStyled(t, filepath.Join(dir, "web"))
-					assertI18nCovered(t, filepath.Join(dir, "web"))
 				}
 			}
 		})
@@ -1055,52 +1091,23 @@ func assertStyled(t *testing.T, web string) {
 	t.Logf("bun run build   %d bytes of css, design system utilities present", len(css))
 }
 
-// assertI18nCovered is the sibling gate, and the same shape of hole: catalog
-// parity (I18N0202) only audits keys that already EXIST, so a screen of
-// hardcoded English passes stack.Validate, passes svelte-check, and passes
-// every other assertion in this file. The scaffolded checker is what closes
-// that — and a gate nobody has watched fail is not a gate, so this runs it
-// clean on the scaffold and then plants a literal and demands red.
-func assertI18nCovered(t *testing.T, web string) {
+// assertI18nDormant: a v3 product generates no typed frontend catalogs (the
+// web client emits the fetch client only), so the i18n coverage gate must
+// SELF-SKIP with its reason — a wall demanding keys that cannot exist would
+// make `bun run check` red on every fresh product. The script stays
+// scaffolded: the day catalogs appear under src/lib/i18n, the gate wakes.
+func assertI18nDormant(t *testing.T, web string) {
 	t.Helper()
-	run := func() (string, error) {
-		cmd := exec.Command("bun", "scripts/check-i18n.ts")
-		cmd.Dir = web
-		out, err := cmd.CombinedOutput()
-		return string(out), err
+	cmd := exec.Command("bun", "scripts/check-i18n.ts")
+	cmd.Dir = web
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the i18n gate must self-skip on a catalog-less product: %v\n%s", err, out)
 	}
-	// The generated catalogs exist by now (the bootstrap wrote them), so the
-	// gate is live rather than skipping.
-	if _, err := os.Stat(filepath.Join(web, "src", "lib", "i18n")); err != nil {
-		t.Fatalf("the i18n gate would skip: no generated catalogs to route through: %v", err)
+	if !strings.Contains(string(out), "Skipped") {
+		t.Errorf("the skip must say so, not pass silently:\n%s", out)
 	}
-	// The scaffold ships clean — its own placeholder copy is allowlisted.
-	if out, err := run(); err != nil {
-		t.Fatalf("the scaffolded web/ must pass its own i18n gate: %v\n%s", err, out)
-	}
-	planted := filepath.Join(web, "src", "routes", "covenant")
-	if err := os.MkdirAll(planted, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(planted)
-	if err := os.WriteFile(filepath.Join(planted, "+page.svelte"),
-		[]byte("<h1>Untranslated heading</h1>\n<input placeholder=\"Type a name\" />\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, err := run()
-	if err == nil {
-		t.Fatalf("hardcoded UI English passed the i18n gate:\n%s", out)
-	}
-	// The failure has to be mechanical to act on: where, what, and the shape.
-	for _, want := range []string{
-		"covenant/+page.svelte", "Untranslated heading", "Type a name",
-		"placeholder={t(", "i18n-allow.txt",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the i18n failure must name %q so the fix needs no thinking:\n%s", want, out)
-		}
-	}
-	t.Logf("bun scripts/check-i18n.ts   clean on the scaffold, red on a planted literal")
+	t.Logf("bun scripts/check-i18n.ts   dormant (no src/lib/i18n), as designed")
 }
 
 // assertAPIUsageGated is the third gate of the same family, closing the hole a
@@ -1134,7 +1141,7 @@ func assertAPIUsageGated(t *testing.T, web string) {
 			"\timport { createQuery } from '@tanstack/svelte-query';\n"+
 			"\tconst zones = createQuery({\n"+
 			"\t\tqueryKey: ['zones'],\n"+
-			"\t\tqueryFn: async () => (await fetch('/v1/zones')).json()\n"+
+			"\t\tqueryFn: async () => (await fetch('/api/v1/zones')).json()\n"+
 			"\t});\n"+
 			"</script>\n\n<p>{zones.data}</p>\n"), 0o644); err != nil {
 		t.Fatal(err)

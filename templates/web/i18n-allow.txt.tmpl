@@ -21,3 +21,13 @@
 Screens consume the generated client in
 — declare the contract in Go, run
 , then import the query and mutation factories it emits.
+{{- if .Auth}}
+
+# The dev login page's copy (web/src/routes/login) — deliberate literals; the
+# server's problem messages localize through messages/*.toml instead. Replace
+# the page and retire these with it.
+Sign in to {{.Name}}
+{{.Login.Username}}
+{{.Login.Password}}
+{{.Login.Submit}}
+{{- end}}

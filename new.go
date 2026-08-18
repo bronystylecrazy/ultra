@@ -59,6 +59,7 @@ type scaffoldData struct {
 	DB        bool   // --db:   pg + migrate + internal/db
 	Web       bool   // --web:  SPA seam + web/ SvelteKit skeleton
 	Auth      bool   // --auth: contrib/auth wired and enforcing
+	MQTT      bool   // --mqtt: the embedded broker + the mqtt feature surface (needs --auth)
 	DS        string // --ds:   the frontend's design system (--web only)
 	// Compliance is never a `ultra new` flag: it is detected off the tree
 	// (requirements/ present) by initShape, so `ultra init --force AGENTS.md`
@@ -80,6 +81,7 @@ type scaffoldData struct {
 	// and the same name always renders the same files. Filled by fillPorts.
 	HTTPPort int // [http] addr, and the vite proxy's standalone target
 	E2EPort  int // playwright's fixed high port (E2E_PORT overrides)
+	MQTTPort int // [mqtt] listen (--mqtt only) — derived so brokers do not fight over :1883
 
 	// --from: the legacy-service on-ramp. Features is the package list app.go
 	// renders (empty for a forward scaffold, so that file is byte-identical
@@ -157,6 +159,9 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		// The cross-tool agent entry point. A ROUTER, not the manual: the
 		// loop, the verbs, the laws, and where the vendored doctrine lives.
 		"AGENTS.md.tmpl": "AGENTS.md",
+		// The ubiquitous language: the domain's nouns, one page, read before
+		// naming anything.
+		"CONTEXT.md.tmpl": "CONTEXT.md",
 		// The same entry point for tools rather than prose: every Claude Code
 		// session started in this product gets `ultra`'s MCP server without
 		// anyone adding it by hand.
@@ -194,6 +199,10 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 			// no way to say who it is. +layout.ts sends anonymous visitors
 			// here; unlike the seeded user, this is replaced, never deleted.
 			files["web/src/routes/login/page.svelte.tmpl"] = "web/src/routes/login/+page.svelte"
+			// The session store the guard and the login page share. SCAFFOLD-
+			// OWNED, not generated: /auth endpoints are stack routes outside
+			// the web contract.
+			files["web/src/lib/auth.svelte.ts.tmpl"] = "web/src/lib/auth.svelte.ts"
 		}
 		// The stylesheet the root shell imports — the design system under
 		// --ds connected, Tailwind and an empty @theme under --ds bare.
@@ -366,7 +375,9 @@ func cmdNew(args []string, out, errW io.Writer) int {
 	var name, module, version, from string
 	// Defaults on; --bare is the subtractive switch, and it is applied
 	// before the additive ones so `--bare --db` means "core plus db"
-	// regardless of the order they were typed in.
+	// regardless of the order they were typed in. --mqtt is the one
+	// OPT-IN capability: most products have no device edge, and the growth
+	// comment in main.go names the two lines when one arrives.
 	d := scaffoldData{DB: true, Web: true, Auth: true}
 	for _, a := range args {
 		if a == "--bare" {
@@ -379,8 +390,8 @@ func cmdNew(args []string, out, errW io.Writer) int {
 		switch {
 		case a == "--bare":
 			rest = rest[1:]
-		case a == "--db", a == "--web", a == "--auth",
-			a == "--no-db", a == "--no-web", a == "--no-auth":
+		case a == "--db", a == "--web", a == "--auth", a == "--mqtt",
+			a == "--no-db", a == "--no-web", a == "--no-auth", a == "--no-mqtt":
 			on := !strings.HasPrefix(a, "--no-")
 			switch strings.TrimPrefix(strings.TrimPrefix(a, "--no-"), "--") {
 			case "db":
@@ -389,6 +400,8 @@ func cmdNew(args []string, out, errW io.Writer) int {
 				d.Web = on
 			case "auth":
 				d.Auth = on
+			case "mqtt":
+				d.MQTT = on
 			}
 			rest = rest[1:]
 		case a == "--module" && len(rest) > 1:
@@ -417,6 +430,10 @@ func cmdNew(args []string, out, errW io.Writer) int {
 		return 2
 	}
 	switch {
+	case d.MQTT && !d.Auth:
+		fmt.Fprintf(errW, "Error: --mqtt needs --auth — the broker's CONNECT gate authenticates every device (auth.Use() + auth.APIKeys())\n\n")
+		ultraTree().find("new").help(errW)
+		return 2
 	case d.DS != "" && d.DS != dsConnected && d.DS != dsBare:
 		fmt.Fprintf(errW, "Error: unknown --ds value %q — use %s (the company design system) or %s (Tailwind alone)\n\n",
 			d.DS, dsConnected, dsBare)
@@ -533,7 +550,7 @@ func capsSuffix(d scaffoldData) string {
 	for _, c := range []struct {
 		name string
 		on   bool
-	}{{"db", d.DB}, {"web", d.Web}, {"auth", d.Auth}} {
+	}{{"db", d.DB}, {"web", d.Web}, {"auth", d.Auth}, {"mqtt", d.MQTT}} {
 		if c.on {
 			on = append(on, c.name)
 		}
@@ -544,10 +561,10 @@ func capsSuffix(d scaffoldData) string {
 	return ", " + strings.Join(on, "+")
 }
 
-// cmdNewFeature implements `ultra new feature <name>`: the single-file
-// collapse form of a feature package. Manifest files (handler.go,
-// service.go, types.go, ...) are NOT scaffolded — they appear when content
-// demands them, which is the doctrine's growth rule.
+// cmdNewFeature implements `ultra new feature <name>`: RUNG 1 of the feature
+// ladder — the whole feature on ONE page. The rung-2 files (api.go,
+// events.go, store.go, errors.go) are NOT scaffolded — they appear when
+// content demands them, which is the doctrine's growth rule.
 func cmdNewFeature(args []string, out, errW io.Writer) int {
 	if len(args) != 1 {
 		ultraTree().find("new").find("feature").help(errW)
@@ -571,8 +588,7 @@ func cmdNewFeature(args []string, out, errW io.Writer) int {
 		return 1
 	}
 	if err := renderAll(".", map[string]string{
-		"feature.go.tmpl":        filepath.Join(dir, name+".go"),
-		"feature_errors.go.tmpl": filepath.Join(dir, "errors.go"),
+		"feature.go.tmpl": filepath.Join(dir, name+".go"),
 	}, scaffoldData{Name: name}); err != nil {
 		fmt.Fprintln(errW, err)
 		failVerdict(errW, "new feature "+name, err.Error())

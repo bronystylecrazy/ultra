@@ -1,0 +1,75 @@
+// The session store — SCAFFOLD-OWNED, yours to grow (not generated: the
+// /auth endpoints are framework stack routes outside the web contract, so
+// the generated client does not cover them). Cookie flavor: the server sets
+// an HttpOnly cookie on login, this tab holds nothing, a reload stays
+// signed in.
+//
+// The raw fetches below are a sanctioned escape from the generated client,
+// listed in web/api-usage-allow.txt with the reason.
+
+type Identity = {
+	subject: string;
+	kind?: string;
+	roles?: string[];
+	/** Effective, role-expanded permissions — what can() checks. */
+	permissions?: string[];
+};
+
+class Session {
+	identity = $state<Identity | null>(null);
+	loaded = $state(false);
+
+	get authenticated() {
+		return this.identity !== null;
+	}
+
+	/** GET /auth/me. A 401 IS the signed-out state, never an error. */
+	async load() {
+		try {
+			const res = await fetch('/auth/me', { credentials: 'include' });
+			this.identity = res.ok ? ((await res.json()) as Identity) : null;
+		} catch {
+			this.identity = null;
+		}
+		this.loaded = true;
+	}
+
+	/**
+	 * POST /auth/login, then /auth/me so the store is populated before the
+	 * next route renders. Throws Error carrying the problem's own message —
+	 * already localized by the server's i18n catalogs. Never invent copy for
+	 * a failure the API named.
+	 */
+	async signIn(creds: { username: string; password: string }) {
+		const res = await fetch('/auth/login', {
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(creds)
+		});
+		if (!res.ok) {
+			let message = res.statusText;
+			try {
+				message = ((await res.json()) as { message?: string }).message ?? message;
+			} catch {
+				// a non-JSON failure keeps the status text
+			}
+			throw new Error(message);
+		}
+		await this.load();
+	}
+
+	/** POST /auth/logout and empty the store; the next navigation hits the guard. */
+	async signOut() {
+		await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+		this.identity = null;
+	}
+
+	/** Gate UI with session.can('zones.read') — the server still decides. */
+	can(perm: string) {
+		const perms = this.identity?.permissions ?? [];
+		return perms.includes('*') || perms.includes(perm);
+	}
+}
+
+export const session = new Session();

@@ -131,14 +131,15 @@ func TestNewTableUnowned(t *testing.T) {
 	}
 }
 
-// TestNewTableStore covers the Go half: the store lands as a plain-noun file
-// in the feature, and errors.go gains the sentinel Remove returns.
+// TestNewTableStore covers the Go half: the store lands on the rung-2
+// grammar's page (store.go), rows are pointers (emit_result_struct_pointers),
+// and errors.go gains the sentinel Remove returns.
 func TestNewTableStore(t *testing.T) {
 	dir := tableFixture(t)
 	if code, out, errW := runNewTable(t, dir, "notes", "body text not null", "--owned"); code != 0 {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errW)
 	}
-	store := read(t, dir, "internal/app/notes/note.go")
+	store := read(t, dir, "internal/app/notes/store.go")
 	for _, want := range []string{
 		"package notes",
 		`"example.com/fixture/internal/db/gen"`,
@@ -146,8 +147,10 @@ func TestNewTableStore(t *testing.T) {
 		"db    *gen.DB",
 		"clock di.Clock",
 		"func NewStore(db *gen.DB, clock di.Clock) *Store",
+		"func (s *Store) Create(ctx context.Context, arg gen.CreateNoteParams) (*gen.Note, error)",
 		"arg.CreatedAt = pgtype.Timestamptz{Time: s.clock.Now(), Valid: true}",
 		`diag.Wrap(gen.NotesError(err), "creating note", "subject", arg.Subject)`,
+		"([]*gen.Note, bool, error)",
 		"s.db.Q().ListNotesPage(ctx, subject, after, size)",
 		"return ErrNotFound",
 	} {
@@ -185,8 +188,8 @@ func TestNewTableSecondStore(t *testing.T) {
 	quack := read(t, dir, "internal/app/ducks/quack.go")
 	for _, want := range []string{
 		"package ducks",
-		"func (s *Store) CreateQuack(ctx context.Context, arg gen.CreateQuackParams) (gen.Quack, error)",
-		"func (s *Store) QuacksPage(ctx context.Context, after *gen.QuacksCursor, size int) ([]gen.Quack, bool, error)",
+		"func (s *Store) CreateQuack(ctx context.Context, arg gen.CreateQuackParams) (*gen.Quack, error)",
+		"func (s *Store) QuacksPage(ctx context.Context, after *gen.QuacksCursor, size int) ([]*gen.Quack, bool, error)",
 		"func (s *Store) RemoveQuack(ctx context.Context, id pgtype.UUID) error",
 	} {
 		if !strings.Contains(quack, want) {

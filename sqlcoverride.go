@@ -27,11 +27,13 @@ import (
 
 // typeConfig is the type policy this product's sqlc.yaml resolved: the
 // overrides in sqlc's precedence order, whether nullable columns are pointers,
-// and the catalog's default schema (a column override names its table).
+// whether :one/:many results are pointers (emit_result_struct_pointers), and
+// the catalog's default schema (a column override names its table).
 type typeConfig struct {
-	overrides []typeOverride
-	pointers  bool
-	schema    string
+	overrides      []typeOverride
+	pointers       bool
+	resultPointers bool
+	schema         string
 }
 
 // typeOverride is one `overrides:` entry, from whichever channel carried it.

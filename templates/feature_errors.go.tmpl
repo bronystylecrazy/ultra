@@ -1,18 +1,23 @@
-// The feature's error surface — a CONTRACT page, not plumbing. Two kinds
-// live here, both exported:
+// The feature's CONTRACT page (rung 2): codes, sentinels, and scopes — the
+// three vocabularies other parties hold against this feature.
 //
-//   - error CODES: the stable machine discriminators clients localize from
-//     ({{.Name}}.not_found). They ride api.Fail's problem envelope, appear
-//     in OpenAPI x-error-codes, and land in the generated client's typed
-//     error unions (declare them on ops with api.Codes). Never rename a
-//     shipped code — add a new one.
-//   - SENTINELS: errors.Is targets for branching inside the feature and in
-//     tests.
+//   - error CODES: stable machine discriminators clients localize from
+//     ({{.Name}}.not_found). They ride web.Fail's problem envelope, appear in
+//     OpenAPI x-error-codes and the generated client's typed error unions
+//     (declare them on routes with .Fails). Never rename a shipped code —
+//     add a new one.
+//   - SENTINELS: errors.Is targets for branching inside the feature. Driver
+//     sentinels die in store.go — the store translates them to these.
+//   - SCOPES: the permissions the route table demands, as web.Scope
+//     constants — never literals at a .Require call site (UV0011).
 package {{.Name}}
 
-// Codes — pair with api.Fail(status, Code..., ...).
+// Codes — pair with web.Fail(c, status, Code, ...) and declare with .Fails.
 const (
-	// CodeNotFound = "{{.Name}}.not_found"
+// CodeNotFound = "{{.Name}}.not_found"
 )
 
 // Sentinels — var Err... = errors.New("{{.Name}}: ...").
+
+// Scopes — granted to roles by [auth.roles] in config.toml.
+// const ReadScope = web.Scope("{{.Name}}.read")

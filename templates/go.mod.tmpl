@@ -5,13 +5,21 @@ go {{.GoVersion}}
 require (
 	github.com/bronystylecrazy/ultrastack {{.Version}}
 	github.com/bronystylecrazy/ultrastack/contrib {{.Version}}
+{{- if .MQTT}}
+	github.com/bronystylecrazy/ultrastack/mqtt {{.Version}}
+{{- end}}
+	github.com/bronystylecrazy/ultrastack/web {{.Version}}
 )
 
 // Building against a local framework checkout (fixing a preset, trying an
-// unreleased change)? Uncomment both — they always move together, because
-// contrib and the kernel ship as one version — then `go mod tidy`. Comment
-// them back out before you ship: a replace directive never leaves your
-// machine.
+// unreleased change)? Uncomment the set — they always move together, because
+// the kernel, contrib and the handler-standard modules ship as one version —
+// then `go mod tidy`. Comment them back out before you ship: a replace
+// directive never leaves your machine.
 //
 // replace github.com/bronystylecrazy/ultrastack => ../ultrastack
 // replace github.com/bronystylecrazy/ultrastack/contrib => ../ultrastack/contrib
+// replace github.com/bronystylecrazy/ultrastack/web => ../ultrastack/web
+{{- if .MQTT}}
+// replace github.com/bronystylecrazy/ultrastack/mqtt => ../ultrastack/mqtt
+{{- end}}

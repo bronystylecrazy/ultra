@@ -15,11 +15,11 @@ import (
 
 // Create{{.Model}} stamps created_at from the injected clock — law 11, and the
 // reason the migration declares no default. Whatever the caller put there loses.
-func (s *Store) Create{{.Model}}(ctx context.Context, arg gen.Create{{.Model}}Params) (gen.{{.Model}}, error) {
+func (s *Store) Create{{.Model}}(ctx context.Context, arg gen.Create{{.Model}}Params) (*gen.{{.Model}}, error) {
 	arg.CreatedAt = pgtype.Timestamptz{Time: s.clock.Now(), Valid: true}
 	row, err := s.db.Q().Create{{.Model}}(ctx, arg)
 	if err != nil {
-		return gen.{{.Model}}{}, diag.Wrap(gen.{{.Export}}Error(err), "creating {{.Singular}}"{{if .Owned}}, "subject", arg.Subject{{end}})
+		return nil, diag.Wrap(gen.{{.Export}}Error(err), "creating {{.Singular}}"{{if .Owned}}, "subject", arg.Subject{{end}})
 	}
 	return row, nil
 }
@@ -27,7 +27,7 @@ func (s *Store) Create{{.Model}}(ctx context.Context, arg gen.Create{{.Model}}Pa
 // {{.Export}}Page returns one keyset page and whether more rows follow. The
 // cursor is the last row's ordering tuple, so a row inserted meanwhile shifts
 // nothing.
-func (s *Store) {{.Export}}Page(ctx context.Context, {{if .Owned}}subject string, {{end}}after *gen.{{.Export}}Cursor, size int) ([]gen.{{.Model}}, bool, error) {
+func (s *Store) {{.Export}}Page(ctx context.Context, {{if .Owned}}subject string, {{end}}after *gen.{{.Export}}Cursor, size int) ([]*gen.{{.Model}}, bool, error) {
 	return s.db.Q().List{{.Export}}Page(ctx, {{if .Owned}}subject, {{end}}after, size)
 }
 

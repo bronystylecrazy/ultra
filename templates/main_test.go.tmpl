@@ -18,10 +18,13 @@ import (
 {{- end}}
 
 {{if .DB}}	"github.com/bronystylecrazy/ultrastack/contrib/conf"
-	"github.com/bronystylecrazy/ultrastack/contrib/pg"
-{{end}}	"github.com/bronystylecrazy/ultrastack/contrib/fib"
-	"github.com/bronystylecrazy/ultrastack/di"
+{{end}}{{if .From}}	"github.com/bronystylecrazy/ultrastack/contrib/fib"
+{{end}}{{if .DB}}	"github.com/bronystylecrazy/ultrastack/contrib/pg"
+{{end}}	"github.com/bronystylecrazy/ultrastack/di"
 	"github.com/bronystylecrazy/ultrastack/stack"
+{{- if not .From}}
+	"github.com/bronystylecrazy/ultrastack/web"
+{{- end}}
 )
 
 // TestWiring is the covenant: if this passes, main boots. Every wiring
@@ -41,7 +44,11 @@ func TestBoot(t *testing.T) {
 {{- if .DB}}
 	requirePostgres(t)
 {{- end}}
+{{- if .From}}
 	app := di.TestApp(t, App, di.Supply(fib.Addr(":0")))
+{{- else}}
+	app := di.TestApp(t, App, di.Supply(web.Addr(":0")))
+{{- end}}
 	if err := app.ConstructAll(); err != nil {
 		t.Fatal(err)
 	}
@@ -51,17 +58,19 @@ func TestBoot(t *testing.T) {
 	}
 	defer app.Stop(ctx)
 
-	base := "http://" + di.MustGet[*fib.Server](app).Addr()
-	resp, err := http.Get(base + "/healthz")
+{{if .From}}	base := "http://" + di.MustGet[*fib.Server](app).Addr()
+{{else}}	base := "http://" + di.MustGet[*web.Server](app).Addr()
+{{end}}	resp, err := http.Get(base + "/healthz")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 {{- if .Auth}}
-	// auth.Protect is wired, and /healthz stays reachable: a probe reads the
-	// STATUS CODE, so an anonymous caller gets the terse verdict (200 ok,
-	// 503 degraded) and nothing else. The component breakdown — names,
-	// errors, causes — answers only a verified caller. /ops/* stay 401.
+	// auth.Protect guards the stack routes, and /healthz stays reachable: a
+	// probe reads the STATUS CODE, so an anonymous caller gets the terse
+	// verdict (200 ok, 503 degraded) and nothing else. The component
+	// breakdown — names, errors, causes — answers only a verified caller.
+	// /ops/* stay 401.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("healthz: got %d, want 200 (the probe answer is public; detail is not)", resp.StatusCode)
 	}

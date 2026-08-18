@@ -1,25 +1,29 @@
 # {{.Name}}
 
 A product on **ultrastack** — one repo, one module, one binary. `main.go` is the
-root page (`var App = ultra.New(...)`); `internal/app/app.go` is the
-only file that knows the feature list.
+root page (`var App = …`, assigned exactly once); `internal/app/app.go` is the
+only file that knows the feature list. `CONTEXT.md` is the domain glossary —
+read it before naming anything.
 {{if .From}}
 Migrated from `{{.From}}` with `ultra new --from`: every operation is wired and
 answers, but the handlers are **501 stubs** (`<feature>.<op>.not_implemented`)
 until they are ported. Fill ONE stub at a time and keep the loop below green —
-that is the whole migration plan.
+that is the whole migration plan. This product rides the TYPED api road (the
+legacy edge, fully supported); forward products scaffold onto handler-standard
+v3, and the laws below describe v3 where the two differ.
 {{end}}
 This file is a ROUTER, not the manual. It tells you where to look.
 
 ## The loop (non-negotiable, in this order)
 
 1. `ultra vet ./...` — static wiring checks before anything runs. `-fix` applies
-   the edits marked `[fixable]`; the rest need a decision.
-2. `ultra explain <code>` for a kernel/analyzer code (`DI0101`, `UV0004`), or
-   `go run . explain <code>` for a preset code (`PG0101`, `AUTH0201` — this
+   the edits marked `[fixable]`; the rest need a decision. Blue `note[...]`
+   lines are informational (the sibling-dependency listing) and never gate.
+2. `ultra explain <code>` for a kernel/analyzer code (`DI0101`, `UV0009`), or
+   `go run . explain <code>` for a preset code (`PG0101`, `WEB0202` — this
    binary knows the codes its own presets registered). **Never fix a diagnostic
    from memory:** the code carries the remedy, and the remedy changes.
-3. `go doc github.com/bronystylecrazy/ultrastack/contrib/api Handle` — read the
+3. `go doc github.com/bronystylecrazy/ultrastack/web Router` — read the
    signature. Never guess an API.
 4. `go test ./...` after every change. `TestWiring` is the covenant: if
    `stack.Validate(App)` passes, `main` boots. `TestContractDrift` names any
@@ -41,10 +45,15 @@ task e2e          the golden path in a real browser against the built binary
 {{- end}}
 go run . <cmd>    the binary is the toolbox: routes, graph, doctor, codes,
                   config init, config reference, infra compose, openapi{{if .Web}}, client{{end}}
+{{- if .MQTT}}
+go run . topics   every bus subscription (the contract producers publish against)
+go run . topics schemas    the declared payload types as JSON Schemas
+go run . drops    the poison-message journal — code, topic, attempts, newest first
+{{- end}}
 {{- if .DB}}
 ultra new table <name> "<cols>" [--owned]
                   the whole persistence slice: migration (created_at with NO
-                  default), the five queries, a Store, then sqlc generate
+                  default), the five queries, a Store (store.go), then sqlc generate
 cd internal/db && sqlc generate
                   after ANY edit to queries/*.sql — `ultra` is the sqlc plugin
                   that re-derives gen.DB, the error sentinels, the keyset page
@@ -59,38 +68,86 @@ This product listens on **`:{{.HTTPPort}}`** — dev ports are derived from the
 product name (config.toml's `[http] addr`{{if .Web}}, playwright's e2e port{{end}}), so
 several products run side by side. They are ordinary files: change them freely.
 
-## The laws (review-blockers)
+## The handler laws (review-blockers)
 
-- **Features never import features** (UV0004). A cross-feature need is an
-  interface declared by the CONSUMER, bound with `di.Alias` in `app.go`.
-- **Contracts are declared once, in Go.** `openapi.json`{{if .Web}},
-  `web/src/lib/api/` and `web/src/lib/i18n/`{{end}} are DERIVED and committed —
-  never hand-edit them; fix the Go contract and run `task contracts`.
-- **Every operation declares `api.Require("perm")` or `api.Public()`.** Auth is
-  secure-by-default; forgetting is a boot error, not a silent hole.
-- **A feature's API surface is a Handler struct with a fluent route table** —
-  `func (h *Handler) Routes(r *api.Router)`, `r.Group(prefix, defaults...)`,
-  one line per endpoint — wired as `api.Handler(NewHandler)` in the feature's
-  `Module` var. Handlers are `func(ctx, Req) (Resp, error)`; request payloads
-  are `<Op>Req`, responses are domain nouns (never `<Op>Resp`).
-- **Features never name a transport.** No `fiber`, no `net/http` in a feature,
-  with two sanctioned exceptions: `g.Raw(...)` for a net/http handler, and
-  `g.Native(...)` — which requires a stated `.Reason(...)` and quarantines its
-  fiber import in `handler_fib.go`.
-- **File names come from a closed set** plus the domain's nouns: `<pkg>.go`,
-  `handler.go`, `types.go`, `deps.go`, `errors.go`, `*_test.go` (UV0003).
-  `handler_users.go` and `service_billing.go` do not exist — split the domain
-  into a package, never the file into layer shards.
+- **Contracts are declared once, in Go.** `openapi.json`{{if .Web}} and
+  `web/src/lib/api/`{{end}} are DERIVED and committed — never hand-edit them;
+  fix the route chain and run `task contracts`.
+- **A feature's HTTP surface is an `API` struct with a fluent route table** —
+  `func (a *API) Handle(router web.Router)`, wired as `web.Provide(NewAPI)` in
+  the feature's `Module` (compile-checked spelling: `web.Register[*API]()`).
+  The chain IS the contract: `.Produce[T]()` / `.Accept[T]()` /
+  `.Fails(status, Code)` / `.Require(Scope)` / `.Public()` / `.Internal()` /
+  `.Undocumented(reason)` — OpenAPI, the TS client and `./app routes` are all
+  derived from it.
+- **Handlers are raw fiber, and the binding is EXPLICIT.** `c.Bind()`,
+  `strconv` on params, your own status decisions; failures ride the shared
+  envelope through `web.Fail(c, status, Code, format, ...)`. No magic.
+- **Surface naming is a closed vocabulary.** `API` is the HTTP surface,
+  `Events` is the MQTT surface (`Handle(m mqtt.Router)`, wired with
+  `mqtt.Provide(NewEvents)`) — one transport per struct, and Go enforces it
+  (both interfaces name their method `Handle`). `Live` (realtime) and `Jobs`
+  (background work) are RESERVED for the same pattern; do not spend those
+  names on anything else.
+- **Scopes are constants, never literals** (UV0011). `const ReadScope =
+  web.Scope("{{.Name}}.read")` on the contract page; `[auth.roles]` grants
+  them. An inline string in `.Require` is a lint finding.
+- **Middleware laws.** `.Require` REPLACES the group default — the two never
+  stack (`.Public()` replaces in both directions). The chain runs `Use` →
+  group → inline → handler, in declaration order — no phases, no priorities.
+  Enforcement runs BEFORE any feature middleware: an unauthenticated request
+  on a guarded route never reaches your code. Auth happens ONLY via
+  `.Require`/`.Public()` — never write an auth-checking middleware.
+- **Declaration order is match order.** Fiber matches routes in the order
+  declared: static paths before parameterized siblings (`/ping` before
+  `/:id`), or `/:id` swallows them.
+- **Every route declares `.Require(Scope)` or `.Public()`.** Secure by
+  default: forgetting is boot error WEB0202, not a silent hole.
+- **Pointer responses:** return `*T` bodies (`c.JSON(&t)`), and a nil pointer
+  only ever travels beside a non-nil error.
+- **Single-purpose returns.** After a branch on `err`, never `return v, err` —
+  one return serves one purpose: `(v, nil)` or `(zero, err)`. Pass-through
+  delegation (`return a.store.Get(...)`) is the legal exception.
+- **`diag.Wrap` with named facts, never `fmt.Errorf("%w")`.** Wrap at the
+  point that KNOWS the meaning of the values: `diag.Wrap(err, "creating
+  {{.Name}}", "id", id)`. Evidence rides the failure log, never the wire.
+- **Store-boundary error translation.** Driver sentinels (`pgx.ErrNoRows`,
+  `gen.Err...Taken`) die in store.go: the store translates them to the
+  feature's own sentinels (`ErrNotFound`), and handlers branch on those.
+- **The feature ladder.** Rung 1: the whole feature in `<feature>.go` (what
+  `ultra new feature` writes). Rung 2: split by responsibility into the closed
+  grammar — `<feature>.go` (front page + Module), `api.go` (the HTTP surface),
+  `events.go` (the bus surface), `store.go` (persistence), `errors.go` (codes
+  + sentinels + scopes) — plus plain-noun files. Rung 3: past ~8 files or a
+  second route prefix (UV0009 nudges), grow a CHILD package one level deep,
+  wired by the parent's own `di.Module` — never a line in app.go.
+- **The import law.** Features MAY import sibling features, ONE direction —
+  `ultra vet` lists the surface (note[UV0010]). A would-be cycle cannot
+  compile, and wanting one is a design signal with three exits: move the
+  shared logic down (`internal/kind` — values only, stdlib-only imports),
+  publish an event, or merge the features. `di.Alias` seams in app.go remain
+  available when you want compile-time decoupling.
 - **Error codes in `errors.go` are contracts.** Clients localize from them and
-  they ride OpenAPI's `x-error-codes`. Never rename a shipped code — add one.
+  they ride OpenAPI's `x-error-codes` (declare with `.Fails`). Never rename a
+  shipped code — add one.
+{{- if .MQTT}}
+- **Bus handlers make one of three terminal decisions**: `nil` (ack),
+  `mqtt.Drop(c, Code, ...)` (poison — never retried, journaled, `./app
+  drops`), any other error (redelivered per the entry's `.Retry`). Bind
+  explicitly (`c.Bind(&ev)`); declare payloads with `.Accept[T]()`. Handlers
+  are idempotent (at-least-once delivery); durable work goes through
+  `jobs.Enqueue`, not a retry loop. A feature module using `di.Export` must
+  also export `mqtt.Handler`.
+{{- end}}
 {{- if .Web}}
 - **Frontend tooling is bun, exclusively.** `bun install`, `bun add`, `bunx`
   (never npx), `bun run` — no npm, node, yarn or pnpm anywhere, including
   scripts you generate.
-- **The generated hooks and `forms.ts` ARE the API surface.** Screens import
-  `create<Op>Query`/`create<Op>Mutation` from `$lib/api` and bind failures with
-  `fieldErrors`; a hand-rolled `fetch('/v1/…')` or a bare `createQuery` fails
+- **The generated client IS the API surface.** Screens import the typed fetch
+  functions from `$lib/api`; a hand-rolled `fetch('/api/…')` fails
   `bun run check` and needs an entry in `web/api-usage-allow.txt` naming why.
+  (`$lib/auth.svelte.ts` is the one scaffolded escape — the session store over
+  the framework's /auth routes.)
 {{- if .Auth}}
 - **The login page and the redirect guard are separable.** `+layout.ts` holds
   the whole guard — imports included — between its `auth guard` and
@@ -109,7 +166,9 @@ several products run side by side. They are ordinary files: change them freely.
   workflow is `references/figma-product.md`.
 {{- end}}
 - **A bug fix lands with the test that would have caught it**; a feature lands
-  with one test of its central claim.
+  with one test of its central claim. Raw fiber means no signature proves a
+  response type — the feature's contract test does, with `webtest` (see the
+  taught block in `contract_test.go`).
 - **No unnecessary helper functions.** Extract only at the second call site or
   for a genuinely separate concern; once-used logic stays inline. Nothing
   unused lands.
@@ -150,7 +209,9 @@ full model is `references/trace.md` in the vendored skill:
 at the EXACT version this product's `go.mod` pins. A fresh `ultra new` scaffold
 arrives WITHOUT that directory — always — so this is a required first step, not
 a fallback for when something is missing. Once it is there,
-`ultra skill install --check` reports any drift from the pin.
+`ultra skill install --check` reports any drift from the pin. The handler
+standard's own pages are `references/presets/web.md` (HTTP) and
+`references/presets/events.md` (MQTT).
 
 `.mcp.json` at the product root wires the same doctrine as tools: every Claude
 Code session started in this directory picks it up (approve it once, the first
