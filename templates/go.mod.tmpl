@@ -8,7 +8,9 @@ require (
 {{- if .MQTT}}
 	github.com/bronystylecrazy/ultrastack/mqtt {{.Version}}
 {{- end}}
+{{- if not .From}}
 	github.com/bronystylecrazy/ultrastack/web {{.Version}}
+{{- end}}
 )
 
 // Building against a local framework checkout (fixing a preset, trying an
@@ -19,7 +21,9 @@ require (
 //
 // replace github.com/bronystylecrazy/ultrastack => ../ultrastack
 // replace github.com/bronystylecrazy/ultrastack/contrib => ../ultrastack/contrib
+{{- if not .From}}
 // replace github.com/bronystylecrazy/ultrastack/web => ../ultrastack/web
+{{- end}}
 {{- if .MQTT}}
 // replace github.com/bronystylecrazy/ultrastack/mqtt => ../ultrastack/mqtt
 {{- end}}

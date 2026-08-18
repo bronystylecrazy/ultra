@@ -398,7 +398,9 @@ func TestNewTableCovenant(t *testing.T) {
 	}
 	sh("go", "mod", "edit",
 		"-replace="+modulePath+"="+repoRoot,
-		"-replace="+modulePath+"/contrib="+filepath.Join(repoRoot, "contrib"))
+		"-replace="+modulePath+"/contrib="+filepath.Join(repoRoot, "contrib"),
+		"-replace="+modulePath+"/web="+filepath.Join(repoRoot, "web"),
+		"-replace="+modulePath+"/mqtt="+filepath.Join(repoRoot, "mqtt"))
 	sh("go", "mod", "tidy")
 
 	code, out, errW := runNewTable(t, dir, "notes", "body text not null", "--owned")
@@ -419,7 +421,8 @@ func TestNewTableCovenant(t *testing.T) {
 		"func NotesError(err error) error",
 		`if pgErr.Code == "42P01"`,
 		"type NotesCursor struct",
-		"func (q *Queries) ListNotesPage(ctx context.Context, subject string, after *NotesCursor, size int) ([]Note, bool, error)",
+		// Pointer rows: the scaffolded sqlc.yaml sets emit_result_struct_pointers.
+		"func (q *Queries) ListNotesPage(ctx context.Context, subject string, after *NotesCursor, size int) ([]*Note, bool, error)",
 		`diag.Wrap(NotesError(err), "query ListNotes", "size", size, "cursor", after != nil)`,
 	} {
 		if !strings.Contains(string(body), want) {

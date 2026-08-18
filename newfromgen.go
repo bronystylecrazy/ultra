@@ -318,9 +318,9 @@ func buildFeature(spec *oaSpec, b *bucket, shared map[string]bool, source string
 		}
 		want := camelOf(name)
 		if shared[name] {
-			// Two features need it and features never import features, so it
-			// is generated in both — package-qualified, exactly the way the api
-			// generators disambiguate a cross-package type name.
+			// Two features need it, and a generator never picks which one
+			// owns it — it is generated in both, package-qualified, exactly
+			// the way the api generators disambiguate a cross-package name.
 			want = camelOf(b.pkg) + camelOf(name)
 		}
 		if want == "" {

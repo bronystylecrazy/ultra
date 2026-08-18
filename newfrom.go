@@ -179,9 +179,10 @@ func translate(source string, spec *oaSpec) (*fromPlan, error) {
 	sort.Strings(order)
 
 	// 2. Which component schemas does each feature reach? A component two
-	//    features both use cannot be shared (features never import features),
-	//    so it is generated in BOTH — package-qualified, exactly the way the
-	//    api generators disambiguate, so the emitted contract stays clean.
+	//    features both use is generated in BOTH — package-qualified, exactly
+	//    the way the api generators disambiguate — so a fresh migration
+	//    starts with zero cross-feature edges (legal one direction under v3,
+	//    but never a choice a generator should make for you).
 	users := map[string][]string{} // component → feature packages
 	for _, key := range order {
 		b := buckets[key]
