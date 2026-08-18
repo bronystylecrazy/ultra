@@ -35,13 +35,14 @@ import (
 {{- else}}
 	"github.com/bronystylecrazy/ultrastack/contrib/zlog"
 {{- end}}
-{{- if .Auth}}
+{{- if or .Auth (not .From)}}
 	"github.com/bronystylecrazy/ultrastack/di"
 {{- end}}
 {{- if .MQTT}}
 	"github.com/bronystylecrazy/ultrastack/mqtt"
 {{- end}}
 {{- if not .From}}
+	"github.com/bronystylecrazy/ultrastack/stack"
 	"github.com/bronystylecrazy/ultrastack/web"
 {{- end}}
 
@@ -96,9 +97,9 @@ var App = ultra.New( // the paved road: config + zerolog + Fiber on [http] +
 // once. main runs it, the covenant validates it (stack.Validate(App)),
 // tests compose it with overrides (di.TestApp(t, App, di.Swap[...](fake))),
 // and e2e drives the built binary. Never reassign it: ultravet resolves the
-// var only while it has a single writer. (cli.Run adds stack.Base — config,
-// slog, lifecycle — under everything here.)
+// var only while it has a single writer.
 var App = di.Options(
+	stack.Base, // the always-on floor: slog, lifecycle, /healthz detail — a VALUE, so cli.Run including it again is the harmless diamond
 	zlog.Use(), // the zerolog engine on [log]: console in dev, JSON in prod, level hot-reloads
 	// The observability waterfall, dormant until [otel] or env names an
 	// exporter: spans + histograms for stack routes, trace-stamped logs,
