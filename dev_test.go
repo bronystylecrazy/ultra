@@ -663,7 +663,7 @@ func main() {
 func TestDevLoopBreakerStopsASelfTriggeringTree(t *testing.T) {
 	skipIfNoProcessSupervision(t)
 	root := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module devfixture\n\ngo 1.26.3\n"), 0o644))
+	must(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module devfixture\n\ngo 1.27rc2\n"), 0o644))
 	must(t, os.WriteFile(filepath.Join(root, "main.go"), []byte(devSelfTrigger), 0o644))
 	d, _, errOut := newTestLoop(t, root)
 	// The wall clock of a loaded CI box must not decide whether five cycles
@@ -722,7 +722,7 @@ func TestDevLoopBreakerStopsASelfTriggeringTree(t *testing.T) {
 func devFixtureRoot(t *testing.T, version string) string {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module devfixture\n\ngo 1.26.3\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module devfixture\n\ngo 1.27rc2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	devFixtureSource(t, root, version)

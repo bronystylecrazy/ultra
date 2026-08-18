@@ -31,7 +31,7 @@ func reportFleet(t *testing.T) (root, deep string) {
 	if err := os.MkdirAll(deep, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gomod := "module example.com/shop\n\ngo 1.26.3\n\nrequire github.com/bronystylecrazy/ultrastack v0.9.19\n"
+	gomod := "module example.com/shop\n\ngo 1.27rc2\n\nrequire github.com/bronystylecrazy/ultrastack v0.9.19\n"
 	if err := os.WriteFile(filepath.Join(root, "shop", "go.mod"), []byte(gomod), 0o644); err != nil {
 		t.Fatal(err)
 	}

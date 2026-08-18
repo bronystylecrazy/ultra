@@ -30,7 +30,7 @@ const scaffoldVersion = "v0.9.39"
 
 // scaffoldGoVersion is the go directive for generated products. It must be
 // at least the framework's own, or the toolchain refuses the dependency.
-const scaffoldGoVersion = "1.26.3"
+const scaffoldGoVersion = "1.27rc2"
 
 // modulePath is the framework's root module; the contrib module hangs off it.
 const modulePath = "github.com/bronystylecrazy/ultrastack"

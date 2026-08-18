@@ -28,7 +28,7 @@ func writeProduct(t *testing.T, mainGo string, extra map[string]string) string {
 	}
 	write("go.mod", `module example.com/shop
 
-go 1.26.3
+go 1.27rc2
 
 require (
 	github.com/bronystylecrazy/ultrastack v0.9.19
