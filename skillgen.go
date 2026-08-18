@@ -228,7 +228,12 @@ func fence(lang, body string) []string {
 func goDoc(root, pkg, symbol string) (string, error) {
 	name := strings.TrimPrefix(pkg, "./")
 	dir := root
-	if st, err := os.Stat(filepath.Join(root, name)); err != nil || !st.IsDir() {
+	sub := filepath.Join(root, name)
+	st, err := os.Stat(sub)
+	// A top-level dir with its own go.mod (web/, mqtt/) is a nested module,
+	// not a root package — go doc from the root cannot see it, so it must not
+	// shadow the contrib fallback.
+	if _, merr := os.Stat(filepath.Join(sub, "go.mod")); err != nil || !st.IsDir() || merr == nil {
 		if st2, err2 := os.Stat(filepath.Join(root, "contrib", name)); err2 == nil && st2.IsDir() {
 			dir = filepath.Join(root, "contrib")
 		}
