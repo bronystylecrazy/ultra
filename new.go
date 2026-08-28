@@ -208,8 +208,12 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		// --ds connected, Tailwind and an empty @theme under --ds bare.
 		files["web/src/app.css.tmpl"] = "web/src/app.css"
 		if d.DS == dsConnected {
-			// The @connected scope resolves through depot, not the public registry.
+			// The @connected scope resolves through depot, not the public
+			// registry — declared in BOTH files because bun reads bunfig.toml
+			// at higher precedence than .npmrc: without the bunfig, a stale
+			// machine-wide ~/.bunfig.toml scope silently shadows the choice.
 			files["web/npmrc.tmpl"] = "web/.npmrc"
+			files["web/bunfig.toml.tmpl"] = "web/bunfig.toml"
 		}
 		files["web/src/lib/api/gitkeep.tmpl"] = "web/src/lib/api/.gitkeep"
 		// A seed of the generated dev proxy so `task dev:web` forwards

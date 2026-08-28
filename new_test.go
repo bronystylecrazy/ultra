@@ -97,7 +97,7 @@ func TestFlagsShapeTheTree(t *testing.T) {
 				want = append(want, "web/src/routes/login/+page.svelte", "web/src/lib/auth.svelte.ts")
 			}
 			if d.DS == dsConnected {
-				want = append(want, "web/.npmrc")
+				want = append(want, "web/.npmrc", "web/bunfig.toml")
 			}
 			if d.DB {
 				want = append(want, db...)
@@ -342,7 +342,7 @@ func TestDesignSystemShapesTheFrontend(t *testing.T) {
 		}
 		return func(rel string) string {
 			b, err := os.ReadFile(filepath.Join(dir, rel))
-			if err != nil && !strings.Contains(rel, ".npmrc") {
+			if err != nil && !strings.Contains(rel, ".npmrc") && !strings.Contains(rel, "bunfig") {
 				t.Fatal(err)
 			}
 			return string(b)
@@ -359,6 +359,9 @@ func TestDesignSystemShapesTheFrontend(t *testing.T) {
 		// The trailing slash is not cosmetic: without it bun mis-joins the
 		// scope path and depot answers with an HTML page.
 		{"web/.npmrc", "@connected:registry=https://depot.connectedtech.dev/npm/\n"},
+		// bunfig outranks .npmrc, so a stale machine-wide ~/.bunfig.toml
+		// scope would otherwise shadow the product's registry choice.
+		{"web/bunfig.toml", `"@connected" = "https://depot.connectedtech.dev/npm/"`},
 		{"web/src/app.css", `@import "@connected/tailwindcss-connected-design/themes/default.css";`},
 		// app.css is at web/src, node_modules at web/ — ONE level up. Two
 		// resolves to a directory that does not exist, Tailwind reports
@@ -398,6 +401,9 @@ func TestDesignSystemShapesTheFrontend(t *testing.T) {
 	}
 	if bare("web/.npmrc") != "" {
 		t.Errorf("--ds bare must not write an .npmrc:\n%s", bare("web/.npmrc"))
+	}
+	if bare("web/bunfig.toml") != "" {
+		t.Errorf("--ds bare must not write a bunfig:\n%s", bare("web/bunfig.toml"))
 	}
 }
 

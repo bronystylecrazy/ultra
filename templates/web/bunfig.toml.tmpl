@@ -1,0 +1,10 @@
+# machinery — maintained by ultra; you rarely edit this.
+#
+# bun reads bunfig.toml with HIGHER precedence than .npmrc, so a machine-wide
+# ~/.bunfig.toml carrying a stale @connected scope would silently shadow this
+# product's registry choice and 404 the install. Declaring the scope here pins
+# it per-product. No token line on purpose: the auth token comes from the
+# user's ~/.npmrc (//depot.connectedtech.dev/:_authToken=...), which bun still
+# honors. The trailing slash on the URL is REQUIRED (see web/.npmrc).
+[install.scopes]
+"@connected" = "https://depot.connectedtech.dev/npm/"
