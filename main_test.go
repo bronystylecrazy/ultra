@@ -179,7 +179,7 @@ func TestVetFixRewritesFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("go.mod", "module fixprobe\n\ngo 1.27rc2\n\nrequire github.com/bronystylecrazy/ultrastack v0.0.0\n\nreplace github.com/bronystylecrazy/ultrastack => "+root+"\n")
+	write("go.mod", "module fixprobe\n\ngo 1.27.0\n\nrequire github.com/bronystylecrazy/ultrastack v0.0.0\n\nreplace github.com/bronystylecrazy/ultrastack => "+root+"\n")
 	write("main.go", `package main
 
 import "github.com/bronystylecrazy/ultrastack/di"

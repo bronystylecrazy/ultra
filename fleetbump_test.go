@@ -42,7 +42,7 @@ func setupFrameworkProxy(t *testing.T, versions ...string) {
 	var list strings.Builder
 	for _, v := range versions {
 		must(t, os.WriteFile(filepath.Join(vdir, v+".info"), []byte(`{"Version":"`+v+`"}`), 0o644))
-		must(t, os.WriteFile(filepath.Join(vdir, v+".mod"), []byte("module "+frameworkModule+"\n\ngo 1.27rc2\n"), 0o644))
+		must(t, os.WriteFile(filepath.Join(vdir, v+".mod"), []byte("module "+frameworkModule+"\n\ngo 1.27.0\n"), 0o644))
 		writeModuleZip(t, filepath.Join(vdir, v+".zip"), v, nil)
 		list.WriteString(v + "\n")
 	}
@@ -77,7 +77,7 @@ func writeModuleZip(t *testing.T, path, ver string, extra map[string]string) {
 		must(t, err)
 		w.Write([]byte(body))
 	}
-	add("go.mod", "module "+frameworkModule+"\n\ngo 1.27rc2\n")
+	add("go.mod", "module "+frameworkModule+"\n\ngo 1.27.0\n")
 	add("lib.go", "package ultrastack\n\nfunc Version() string { return \""+ver+"\" }\n")
 	for name, body := range extra {
 		add(name, body)
@@ -126,7 +126,7 @@ func newBumpProduct(t *testing.T, root, name, module, ver string, extra map[stri
 	t.Helper()
 	dir := filepath.Join(root, name)
 	must(t, os.MkdirAll(dir, 0o755))
-	gomod := "module " + module + "\n\ngo 1.27rc2\n\nrequire " + frameworkModule + " " + ver + "\n"
+	gomod := "module " + module + "\n\ngo 1.27.0\n\nrequire " + frameworkModule + " " + ver + "\n"
 	must(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644))
 	main := "package main\n\nimport ust \"" + frameworkModule + "\"\n\nfunc main() { _ = ust.Version() }\n"
 	must(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte(main), 0o644))
@@ -179,7 +179,7 @@ func TestFleetBump(t *testing.T) {
 	replDir := filepath.Join(root, "replaced")
 	must(t, os.MkdirAll(replDir, 0o755))
 	must(t, os.WriteFile(filepath.Join(replDir, "go.mod"),
-		[]byte("module github.com/acme/replaced\n\ngo 1.27rc2\n\nrequire "+frameworkModule+" v0.1.0\n\nreplace "+frameworkModule+" => ../fwstub\n"), 0o644))
+		[]byte("module github.com/acme/replaced\n\ngo 1.27.0\n\nrequire "+frameworkModule+" v0.1.0\n\nreplace "+frameworkModule+" => ../fwstub\n"), 0o644))
 
 	var out, errW strings.Builder
 	code := fleetBump([]string{root, "--to", "v0.6.0", "--json"}, &out, &errW)
