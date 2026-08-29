@@ -471,7 +471,9 @@ func TestAuthScaffoldIsLoginnable(t *testing.T) {
 	if pw == nil {
 		t.Fatalf("main.go must seed one dev user:\n%s", main)
 	}
-	for _, want := range []string{"DEV ONLY — DELETE ME", "authpg.Stores()", "di.Bind[auth.UserStore]"} {
+	// authpg.Use(), never authpg.Stores(): there is no Stores in contrib/authpg,
+	// so the old text pointed the reader at a call that does not compile.
+	for _, want := range []string{"DEV ONLY — DELETE ME", "authpg.Use()", "di.Bind[auth.UserStore]"} {
 		if !strings.Contains(main, want) {
 			t.Errorf("the seed must be loudly temporary, missing %q:\n%s", want, main)
 		}

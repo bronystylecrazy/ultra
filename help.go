@@ -375,6 +375,12 @@ capability: it wires the embedded broker (mqtt.Use + auth.APIKeys) and the
 mqtt feature surface — most products have no device edge, and main.go's
 growth comment names the lines when one arrives.
 
+These four flags are the whole shape question, and they are asked ONCE
+because they decide which FILES exist. Everything else a product might
+want — jobs, redis, ws, rate, s3 — is one line in main.go, so it is not a
+flag here at all: it is ` + "`ultra add <preset>`" + `, which works the day you
+scaffold and equally well three years later.
+
 --ds picks the frontend's design system (--web only). connected (the
 default) wires @connected/svelte-connected-design from the depot registry, so
 bun install needs depot auth. bare wires Tailwind v4 and an empty @theme:
@@ -455,6 +461,66 @@ migration or query file already mentions — naming the file.`,
 							{"--no-store", "SQL only — write no Go"},
 						},
 					},
+				},
+			},
+			{
+				name:  "add",
+				args:  "<preset>... [--dry] [--dir <path>]",
+				short: "grow a product: one infrastructure line per preset",
+				long: `Wire infrastructure into a product that already exists.
+
+This is the other half of ` + "`ultra new`" + `, and the split is the point.
+The four scaffold flags (--db --web --auth --mqtt) shape the TREE: they
+decide which files exist, so they can only be answered once, at birth. An
+infrastructure preset shapes exactly ONE LINE in the assembly and no files
+at all — so it is a verb instead, and the answer to "can I add jobs later"
+is always yes.
+
+    ultra add jobs redis        two lines, two imports, one gofmt
+    ultra add rate --dry        the diff, nothing written
+
+Run it from the product root. It reads the canonical root the analyzer
+reads — ` + "`var App = …`" + `, assigned once, holding a bundle call — inserts each
+preset before app.Modules, adds the import, and gofmts. A root it cannot
+resolve is error[ADD0101]: it prints the exact lines to paste and edits
+NOTHING, because a wrong guess about someone's assembly is worse than no
+edit at all.
+
+Already wired is a no-op that says so with the line number, so re-running
+is safe and the wizard can call it on a product it just scaffolded. A
+preset whose dependency is missing is error[ADD0102], naming the command
+that fixes it.
+
+PRESETS — these boot on their defaults
+  jobs      durable background jobs + cron          [jobs]
+  ws        the realtime websocket hub              [ws]
+  rate      identity-keyed rate limiting            [rate]
+  cache     in-process typed caches
+  notify    email/Line/Telegram notification routes [notify]
+  seed      named, applied-once data seeds
+  audit     durable audit trail in Postgres         [audit]
+  console   the ops console at /ops/console
+  report    rendered reports: define, enqueue, store
+
+PRESETS — these need their config section before the product BOOTS
+  redis     the client; also backs cache + rate     [redis], dev infra
+  s3        S3/MinIO object storage                 [s3], dev infra
+  inference the gRPC inference client               [inference]
+
+The second group is not a warning about style: with no [redis] url the
+product fails at Start (REDIS0201) and its own ` + "`go test`" + ` goes red. So the
+command prints the section to paste, with dev values matching the container
+the preset declares — add it before the first boot, not after the first
+failure.
+
+pg, migrate, auth, mqtt and api are NOT here: they ride ` + "`ultra new`" + `'s flags
+because they need FILES, not just a line. authpg is not here either — it
+swaps the scaffold's dev-seed block rather than joining it, and this verb
+does not do surgery it cannot show you in one diff. Asking for any of them
+prints what to do instead.`,
+				flags: []flagDoc{
+					{"--dry", "show the diff and write nothing"},
+					{"--dir <path>", "the product root (default: .)"},
 				},
 			},
 			{

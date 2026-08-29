@@ -73,7 +73,10 @@ type preset struct {
 var presets = []preset{
 	{Pkg: "api", Entry: `api.Use(api.Info{Title: "app", Version: "0.1.0"})`,
 		Doc: "the typed HTTP edge: OpenAPI + TS client generators"},
-	{Pkg: "audit", Entry: "audit.Use()", Section: "audit",
+	// Infra is CONDITIONAL here and nowhere else: audit's declaration returns
+	// the zero Service unless [audit] backend = "clickhouse". The flag says
+	// "this preset can declare one", which is what a reader needs to be told.
+	{Pkg: "audit", Entry: "audit.Use()", Section: "audit", Infra: true,
 		Doc: "durable audit trail in Postgres (supersedes auth's log-only sink)", Pairs: []string{"pg", "migrate"}},
 	{Pkg: "auth", Entry: "auth.Use()", Section: "auth",
 		Doc: "identity: users, API keys, JWT/session strategies, route enforcement"},
@@ -93,10 +96,12 @@ var presets = []preset{
 		Doc: "durable background jobs + cron"},
 	{Pkg: "migrate", Entry: "migrate.Use()",
 		Doc: "goose migrations, applied before anything serves", Pairs: []string{"pg"}},
-	{Pkg: "mqtt", Entry: "mqtt.Use()", Section: "mqtt", Infra: true,
+	// NOT Infra: the broker is EMBEDDED in the product binary, and contrib/mqtt
+	// declares no devinfra.Service on purpose — "the absence is the promise".
+	{Pkg: "mqtt", Entry: "mqtt.Use()", Section: "mqtt",
 		Doc: "the MQTT broker; devices authenticate against contrib/auth", Pairs: []string{"auth"}},
 	{Pkg: "notify", Entry: "notify.Use()", Section: "notify",
-		Doc: "notification routes over email/Line/Telegram channels"},
+		Doc: "notification routes over email/Line/Telegram channels", Pairs: []string{"jobs"}},
 	{Pkg: "otel", Entry: "otel.Use()", Section: "otel",
 		Doc: "OpenTelemetry traces + metrics exporters"},
 	{Pkg: "pg", Entry: "pg.Use()", Section: "postgres", Infra: true,
@@ -161,6 +166,13 @@ var presetDeps = []presetDep{
 	{"audit", "pg", "audit's store is newStore(db *pg.DB, …) — *pg.DB goes unprovided (DI0001)"},
 	{"authpg", "pg", "authpg.NewUserStore(db *pg.DB) — *pg.DB goes unprovided (DI0001)"},
 	{"mqtt", "auth", "the broker constructor takes *auth.Auth and *auth.Audit (DI0001)"},
+	{"seed", "pg", "seed.NewRunner(db *pg.DB, …) — *pg.DB goes unprovided (DI0001). migrate is di.Optional there, so it is NOT a row"},
+	// notify is deliberately NOT a row against jobs. newBackgroundConn takes
+	// di.Optional[jobs.Conn] AND di.Optional[*pg.DB] and only fails when
+	// NEITHER is present, so notify on a pg product with no jobs works — a
+	// covenant run proved it. This table cannot say "A or B", and a row that
+	// refused that product would be the false refusal the doctrine above
+	// forbids. The soft pairing lives in the catalog's Pairs instead.
 	{"jobs", "migrate", `jobs contributes migrate.Files("jobs", …) — with no Runner its tables are never created`},
 	{"audit", "migrate", `audit contributes migrate.Files("audit", …) — with no Runner ultra_audit is never created`},
 	{"authpg", "migrate", `authpg contributes migrate.Files("authpg", …) — with no Runner its tables are never created`},

@@ -58,8 +58,8 @@ const (
 )
 
 // wizardAnswers is everything the form collects, and the wizard's ENTIRE
-// output. Nothing else crosses out of this file: the answers become a command
-// line, and the command line does the work.
+// output. Nothing else crosses out of this file: the answers become TWO
+// command lines, and the command lines do the work.
 type wizardAnswers struct {
 	Name string
 	DB   bool
@@ -67,6 +67,12 @@ type wizardAnswers struct {
 	Auth bool
 	MQTT bool
 	DS   string
+	// Infra is the Infrastructure page: preset names, in catalog order. They
+	// are deliberately NOT scaffoldData fields — an infrastructure preset
+	// changes one line of main.go and no files at all, so it belongs to
+	// `ultra add`, which runs after the scaffold and equally well three years
+	// after it.
+	Infra []string
 }
 
 // normalize applies the rules the flag parser would otherwise enforce by
@@ -89,6 +95,27 @@ func (a wizardAnswers) normalize() wizardAnswers {
 	} else if a.DS == "" {
 		a.DS = dsConnected
 	}
+	// The same resolution one rung out: an infrastructure preset whose
+	// dependency the TREE owns turns that capability on, because `ultra add
+	// jobs` on a product with no Postgres is ADD0102 — a refusal the form can
+	// simply prevent. jobs is the only one of the five with such a dependency;
+	// the guard is derived from addNeeds rather than hardcoded, so a new row in
+	// the evidence table reaches the wizard on its own.
+	for _, name := range a.Infra {
+		for _, d := range addNeeds(name) {
+			switch d.Needs {
+			case "pg", "migrate":
+				a.DB = true
+			case "auth":
+				a.Auth = true
+			}
+		}
+	}
+	// Keep catalog order however the multi-select collected them, so the
+	// echoed `ultra add` line is stable for the same answer set.
+	a.Infra = slices.DeleteFunc(slices.Clone(infraCurated), func(name string) bool {
+		return !slices.Contains(a.Infra, name)
+	})
 	return a
 }
 
@@ -128,6 +155,28 @@ func (a wizardAnswers) command() string {
 	return "ultra new " + strings.Join(a.args(), " ")
 }
 
+// addCommand is the SECOND line of the echo — empty when no infrastructure was
+// chosen, because a command that adds nothing is noise in a README.
+func (a wizardAnswers) addCommand() string {
+	a = a.normalize()
+	if len(a.Infra) == 0 {
+		return ""
+	}
+	return "ultra add " + strings.Join(a.Infra, " ")
+}
+
+// commands is the whole run as the lines a human pastes, in order. The echo law
+// grew a second line rather than a cleverer first one: the capabilities and the
+// infrastructure are genuinely two acts — one shapes the tree at birth, the
+// other shapes one line of main.go on any day — and an echo that hid that
+// behind a single invented flag would teach a shape the CLI does not have.
+func (a wizardAnswers) commands() string {
+	if add := a.addCommand(); add != "" {
+		return a.command() + "\n  " + add
+	}
+	return a.command()
+}
+
 // data is the product the SUMMARY describes. It is built straight from the
 // answers rather than by parsing args() — the two derivations are independent
 // on purpose, because a summary computed from the command it prints could
@@ -158,6 +207,9 @@ func (a wizardAnswers) summary() string {
 	if d.Web {
 		line += " · " + d.DS + " DS"
 	}
+	if infra := a.normalize().Infra; len(infra) > 0 {
+		line += " · +" + strings.Join(infra, " +")
+	}
 	return line + " · Go " + d.GoVersion + " · " + d.Version
 }
 
@@ -184,22 +236,24 @@ func validateProductName(s string) error {
 // summary would hash equal forever and render whatever it computed first,
 // which is the empty answer set.
 type wizardForm struct {
-	Name string
-	Caps []string
-	DS   string
-	OK   bool
+	Name  string
+	Caps  []string
+	Infra []string
+	DS    string
+	OK    bool
 }
 
 // answers reads the collected values back out. Normalized here so a caller
 // cannot get an un-resolved combination out of the form at all.
 func (f *wizardForm) answers() wizardAnswers {
 	return wizardAnswers{
-		Name: strings.TrimSpace(f.Name),
-		DB:   slices.Contains(f.Caps, capDB),
-		Web:  slices.Contains(f.Caps, capWeb),
-		Auth: slices.Contains(f.Caps, capAuth),
-		MQTT: slices.Contains(f.Caps, capMQTT),
-		DS:   f.DS,
+		Name:  strings.TrimSpace(f.Name),
+		DB:    slices.Contains(f.Caps, capDB),
+		Web:   slices.Contains(f.Caps, capWeb),
+		Auth:  slices.Contains(f.Caps, capAuth),
+		MQTT:  slices.Contains(f.Caps, capMQTT),
+		DS:    f.DS,
+		Infra: f.Infra,
 	}.normalize()
 }
 
@@ -246,6 +300,45 @@ func (f *wizardForm) build(in io.Reader, out io.Writer) *huh.Form {
 		}, &f.Caps).
 		Value(&f.Caps)
 
+	// The Infrastructure page. NOTHING is preselected, and the header says why
+	// that is safe: unlike the capabilities above, every one of these is one
+	// line in main.go and `ultra add <preset>` puts it there on any later day.
+	// A first product should start with the smallest graph that boots.
+	infra := huh.NewMultiSelect[string]().
+		Title("Infrastructure (optional — each is one line in main.go, addable any time)").
+		Options(
+			huh.NewOption("jobs    durable background jobs + cron — needs db, toggles it on", "jobs"),
+			huh.NewOption("redis   cache / kv — needs a [redis] url before it boots", "redis"),
+			huh.NewOption("s3      object storage — needs an [s3] endpoint before it boots", "s3"),
+			huh.NewOption("ws      the realtime hub", "ws"),
+			huh.NewOption("rate    identity-keyed rate limiting", "rate"),
+		).
+		// Two things the reader needs the instant they tick a box, and both are
+		// facts this repo MEASURED rather than assumed: jobs pulls db in (its
+		// store takes a *pg.DB), and redis and s3 will not boot until their
+		// section exists — the product's own `go test` goes red without it.
+		DescriptionFunc(func() string {
+			var notes []string
+			if slices.Contains(f.Infra, "jobs") {
+				notes = append(notes, "jobs stores its queue in Postgres — turns db on")
+			}
+			var needConfig []string
+			for _, name := range []string{"redis", "s3"} {
+				if slices.Contains(f.Infra, name) {
+					needConfig = append(needConfig, name)
+				}
+			}
+			if len(needConfig) > 0 {
+				notes = append(notes, strings.Join(needConfig, " and ")+
+					": paste the config section printed at the end before the first boot")
+			}
+			if len(notes) == 0 {
+				return "space toggles · enter accepts · none is a fine answer"
+			}
+			return strings.Join(notes, "\n")
+		}, &f.Infra).
+		Value(&f.Infra)
+
 	// Asked ONLY when there is a frontend to style: `--ds` without `--web` is
 	// a usage error, and a question whose answer cannot matter is noise.
 	ds := huh.NewGroup(
@@ -263,14 +356,14 @@ func (f *wizardForm) build(in io.Reader, out io.Writer) *huh.Form {
 		huh.NewConfirm().
 			TitleFunc(func() string { return f.answers().summary() }, f).
 			DescriptionFunc(func() string {
-				return "equivalent command (reproducible, CI-safe):\n  " + f.answers().command()
+				return "equivalent commands (reproducible, CI-safe):\n  " + f.answers().commands()
 			}, f).
 			Affirmative("Scaffold it").
 			Negative("Cancel").
 			Value(&f.OK),
 	)
 
-	form := huh.NewForm(huh.NewGroup(name), huh.NewGroup(caps), ds, confirm).
+	form := huh.NewForm(huh.NewGroup(name), huh.NewGroup(caps), huh.NewGroup(infra), ds, confirm).
 		WithTheme(wizardTheme(out)).
 		WithKeyMap(wizardKeyMap()).
 		WithInput(in).
@@ -371,12 +464,28 @@ func (f *wizardForm) finish(err error, out, errW io.Writer) int {
 		return 1
 	}
 	a := f.answers()
-	// The wizard's whole output is this command line. From here on the run is
-	// indistinguishable from a human having typed it.
+	// The wizard's whole output is these command lines. From here on the run is
+	// indistinguishable from a human having typed them.
 	if code := cmdNew(a.args(), out, errW); code != 0 {
 		return code
 	}
-	fmt.Fprintf(out, "\nThis run, as a command:\n  %s\n", a.command())
+	// The second act, in the product the first one just wrote. It is the SAME
+	// function `ultra add` is, called with the same arguments the echoed line
+	// carries — so the two-line echo is not a description of what happened, it
+	// is what happened.
+	//
+	// A failure here is reported and does NOT fail the run: the product exists
+	// and is sound, and "the scaffold worked but redis did not land" is a
+	// materially different message from "nothing was written". The echoed add
+	// line below is then the exact retry.
+	if len(a.Infra) > 0 {
+		fmt.Fprintf(out, "\n%s\n", a.addCommand())
+		if code := addPresets(a.Name, a.Infra, false, out, errW); code != 0 {
+			fmt.Fprintf(errW, "\nthe product is scaffolded and sound — re-run the infrastructure step:\n  cd %s && %s\n",
+				a.Name, a.addCommand())
+		}
+	}
+	fmt.Fprintf(out, "\nThis run, as commands:\n  %s\n", a.commands())
 	// The two doors the wizard deliberately does not ask about. --from is an
 	// on-ramp for a service that already exists, and compliance is a typed
 	// opt-in of its own — neither belongs in the path of a first product, but

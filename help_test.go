@@ -19,6 +19,7 @@ Usage:
   ultra [command]
 
 Available Commands:
+  add          grow a product: one infrastructure line per preset
   breaking     gate a contract change against its consumers
   brief        the orientation pack: one product, one page
   codes        list every diagnostic code with its summary

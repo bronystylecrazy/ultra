@@ -148,8 +148,11 @@ var App = di.Options(
 	// exactly that, and this line is why it does not.
 	//
 	// Replace with durable users before anyone else touches this:
-	//     authpg.Stores()   // users + API keys in Postgres
-	// and delete this block. A password in source is a password in git.
+	//     authpg.Use()   // users + API keys in Postgres (needs pg + migrate)
+	// and DELETE this block in the same edit — authpg binds auth.UserStore too,
+	// so leaving both is an ambiguity (DI0004), not a merge. That swap is why
+	// `ultra add authpg` refuses: it is not one line.
+	// A password in source is a password in git.
 	di.Bind[auth.UserStore](func() *auth.MemUsers {
 		return auth.NewMemUsers(auth.NewUser("{{.DevUser}}", "{{.DevPassword}}", "admin"))
 	}),
@@ -168,23 +171,42 @@ var App = di.Options(
 	app.Modules,
 )
 
-// Growth is one registration each, right here (see the framework SKILL.md
-// for the reference behind every line):
+// Growth is one registration each, right here — and `ultra add <preset>`
+// writes that line for you, into this call, before app.Modules:
+//
+//	ultra add jobs redis
+//
+// It is the same edit either way; the verb just prints where it landed. It
+// refuses anything that is NOT one line (see the list below) rather than
+// guessing. See the framework SKILL.md for the reference behind every line.
 //
 {{- if not .DB}}
 //	pg.Use() + migrate.Use()   Postgres pool + embedded migrations
+//	                           NOT `ultra add` — it needs internal/db/, so it
+//	                           rides `ultra new --db`
 {{- end}}
 {{- if .Auth}}
-//	authpg.Use()                  durable users + API keys in Postgres
+//	authpg.Use()                  durable users + API keys in Postgres —
+//	                              REPLACES the dev-seed block below, so it is a
+//	                              hand edit, not `ultra add`
 {{- else}}
-//	auth.Use() + auth.Protect     identity + route enforcement
+//	auth.Use() + auth.Protect     identity + route enforcement (rides
+//	                              `ultra new --auth`: it needs the login page)
 {{- end}}
 {{- if and .Auth (not .MQTT) (not .From)}}
 //	mqtt.Use() + auth.APIKeys()   the embedded MQTT broker + feature Events
 //	                              (github.com/bronystylecrazy/ultrastack/mqtt)
 {{- end}}
+//
+// One line each, and `ultra add <name>` wires any of them:
+//
 //	jobs.Use()                    durable background jobs + cron
 //	ws.Use()                      the realtime hub
 //	rate.Use()                    identity-keyed rate limiting
+//	cache.Use()                   in-process typed caches
+//	redis.Use()                   the client — needs a [redis] url to BOOT
+//	s3.Use()                      object storage — needs an [s3] endpoint to BOOT
+//	console.Use()                 the ops console at /ops/console
+//	audit.Use() · seed.Use() · notify.Use() · report.Use()
 
 func main() { cli.Run(App) }

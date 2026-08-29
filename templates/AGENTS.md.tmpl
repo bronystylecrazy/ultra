@@ -45,6 +45,18 @@ task e2e          the golden path in a real browser against the built binary
 {{- end}}
 go run . <cmd>    the binary is the toolbox: routes, graph, doctor, codes,
                   config init, config reference, infra compose, openapi{{if .Web}}, client{{end}}
+ultra add <preset>...
+                  GROW this product: one infrastructure line per preset, into
+                  main.go's assembly before app.Modules, import and gofmt
+                  included. This is the SANCTIONED growth edit — prefer it to
+                  editing the assembly by hand, because it prints what it
+                  inserted and where (file:line), refuses a root it cannot
+                  resolve (ADD0101) instead of guessing, and is idempotent, so
+                  re-running it is safe. `ultra add --help` lists every preset.
+                  It REFUSES what is not one line — pg/auth/mqtt/api ride
+                  `ultra new`'s flags because they need files, and authpg
+                  replaces the dev-seed block rather than joining it. Those
+                  refusals name the fix; do that instead, by hand
 ultra new <name> --flags
                   scaffold another product. ALWAYS the flag form: bare
                   `ultra new` on a terminal opens an interactive wizard for a

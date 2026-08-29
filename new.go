@@ -558,8 +558,9 @@ scaffold with --ds bare: the same Tailwind foundation, no design system.
 
 That user is seeded in main.go and the [auth.jwt] secret in config.toml is
 freshly random — the product is loginnable the minute it boots. BOTH are
-DEV ONLY: delete the seed and wire authpg.Stores() for real users, and move
-the secret to ULTRA_AUTH_JWT_SECRET, before this serves anyone but you.
+DEV ONLY: delete the seed and wire authpg.Use() for real users (it binds
+auth.UserStore too, so the seed must GO in the same edit), and move the
+secret to ULTRA_AUTH_JWT_SECRET, before this serves anyone but you.
 `, d.DevUser, d.DevPassword)
 	}
 	if d.plan != nil {
