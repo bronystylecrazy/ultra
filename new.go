@@ -364,18 +364,21 @@ func resolveVersion(flag string) string {
 	return scaffoldVersion
 }
 
-// cmdNew implements `ultra new <name> [flags]` and `ultra new feature <name>`.
-func cmdNew(args []string, out, errW io.Writer) int {
-	if len(args) > 0 && args[0] == "feature" {
-		return cmdNewFeature(args[1:], out, errW)
-	}
-	if len(args) > 0 && args[0] == "table" {
-		return cmdNewTable(args[1:], out, errW)
-	}
-	if len(args) > 0 && args[0] == "requirement" {
-		return cmdNewRequirement(args[1:], out, errW)
-	}
+// newArgs is one parsed `ultra new` command line: the product's shape, plus
+// the --from document, which has not been read yet.
+type newArgs struct {
+	data scaffoldData
+	from string
+}
 
+// parseNewArgs is `ultra new`'s flag form — arguments in, the product's shape
+// out, nothing written and nothing random (fillDevSeed and fillPorts stay with
+// the caller). Split out of cmdNew so the interactive wizard's echoed command
+// can be run back through the REAL parser under test: the summary the wizard
+// shows and the command it prints have to describe the same product, and
+// TestWizardEmitsTheSameScaffoldAsItsEchoedCommand proves it mechanically.
+// Usage errors are written to errW exactly as they always were.
+func parseNewArgs(args []string, errW io.Writer) (newArgs, int) {
 	var name, module, version, from string
 	// Defaults on; --bare is the subtractive switch, and it is applied
 	// before the additive ones so `--bare --db` means "core plus db"
@@ -420,33 +423,33 @@ func cmdNew(args []string, out, errW io.Writer) int {
 			node := ultraTree().find("new")
 			fmt.Fprintf(errW, "Error: unknown flag %q for %q\n\n", a, node.path())
 			node.help(errW)
-			return 2
+			return newArgs{}, 2
 		default:
 			if name != "" {
 				ultraTree().find("new").help(errW)
-				return 2
+				return newArgs{}, 2
 			}
 			name, rest = a, rest[1:]
 		}
 	}
 	if name == "" {
 		ultraTree().find("new").help(errW)
-		return 2
+		return newArgs{}, 2
 	}
 	switch {
 	case d.MQTT && !d.Auth:
 		fmt.Fprintf(errW, "Error: --mqtt needs --auth — the broker's CONNECT gate authenticates every device (auth.Use() + auth.APIKeys())\n\n")
 		ultraTree().find("new").help(errW)
-		return 2
+		return newArgs{}, 2
 	case d.DS != "" && d.DS != dsConnected && d.DS != dsBare:
 		fmt.Fprintf(errW, "Error: unknown --ds value %q — use %s (the company design system) or %s (Tailwind alone)\n\n",
 			d.DS, dsConnected, dsBare)
 		ultraTree().find("new").help(errW)
-		return 2
+		return newArgs{}, 2
 	case d.DS != "" && !d.Web:
 		fmt.Fprintf(errW, "Error: --ds needs --web — a design system with no frontend to style\n\n")
 		ultraTree().find("new").help(errW)
-		return 2
+		return newArgs{}, 2
 	case d.Web && d.DS == "":
 		d.DS = dsConnected
 	}
@@ -455,6 +458,32 @@ func cmdNew(args []string, out, errW io.Writer) int {
 	}
 	d.Name, d.Module = name, module
 	d.Version, d.GoVersion = resolveVersion(version), scaffoldGoVersion
+	return newArgs{data: d, from: from}, 0
+}
+
+// cmdNew implements `ultra new <name> [flags]` and `ultra new feature <name>`.
+func cmdNew(args []string, out, errW io.Writer) int {
+	if len(args) > 0 && args[0] == "feature" {
+		return cmdNewFeature(args[1:], out, errW)
+	}
+	if len(args) > 0 && args[0] == "table" {
+		return cmdNewTable(args[1:], out, errW)
+	}
+	if len(args) > 0 && args[0] == "requirement" {
+		return cmdNewRequirement(args[1:], out, errW)
+	}
+	// `ultra new` alone, typed by a human at a terminal, is the only way into
+	// the wizard — see wizardWanted. Everything else takes the flag form.
+	if wizardWanted(args, out) {
+		return cmdNewWizard(os.Stdin, out, errW)
+	}
+
+	parsed, code := parseNewArgs(args, errW)
+	if code != 0 {
+		return code
+	}
+	d, from := parsed.data, parsed.from
+	name, module := d.Name, d.Module
 	// Derived here as well as in scaffold so the lines printed below name the
 	// port the file actually carries.
 	d.fillPorts()

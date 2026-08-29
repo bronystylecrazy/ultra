@@ -1298,10 +1298,17 @@ func TestKernelStaysZeroDependency(t *testing.T) {
 // reachable ONLY from cmd/ultra. That is what makes them free for products:
 // with Go's module-graph pruning, a module that provides no package a product
 // imports contributes nothing to that product's go.mod or go.sum. fsnotify set
-// the precedent (the dev watcher); creack/pty follows it (the dev terminal).
+// the precedent (the dev watcher); creack/pty follows it (the dev terminal);
+// huh and the two charm libraries under it follow it again (`ultra new`'s
+// interactive wizard), and they are the reason this list is worth keeping
+// honest — a TUI toolkit is the kind of dependency that would be expensive if
+// it ever became reachable from an importable package.
 var toolDeps = []string{
 	"github.com/fsnotify/fsnotify",
 	"github.com/creack/pty",
+	"github.com/charmbracelet/huh",
+	"github.com/charmbracelet/bubbles",
+	"github.com/charmbracelet/lipgloss",
 }
 
 // The proof, both directions: every tool dependency IS reached from cmd/ultra
@@ -1332,17 +1339,29 @@ func TestToolDependenciesAreReachableOnlyFromCmd(t *testing.T) {
 		return set
 	}
 
+	// toolDeps are MODULE paths and the sets hold PACKAGE paths, so both
+	// directions ask the same question: is any package FROM this module in
+	// this set. A module's own path is not always an importable package —
+	// charmbracelet/bubbles has no root package, and cmd/ultra imports
+	// bubbles/key — so an exact match would read a live dependency as dead.
+	from := func(set map[string]bool, module string) string {
+		for pkg := range set {
+			if pkg == module || strings.HasPrefix(pkg, module+"/") {
+				return pkg
+			}
+		}
+		return ""
+	}
+
 	tool := deps("./cmd/...")
 	importable := deps("./di/...", "./stack/...", "./cli/...", "./examples/...")
 	for _, dep := range toolDeps {
-		if !tool[dep] {
+		if from(tool, dep) == "" {
 			t.Errorf("%s is required by go.mod but no package under cmd/ imports it — drop the require line", dep)
 		}
-		for pkg := range importable {
-			if pkg == dep || strings.HasPrefix(pkg, dep+"/") {
-				t.Errorf("%s is reachable from an importable package — it is no longer tool-only, "+
-					"and module-graph pruning will stop keeping it out of every product's go.mod", pkg)
-			}
+		if pkg := from(importable, dep); pkg != "" {
+			t.Errorf("%s is reachable from an importable package — it is no longer tool-only, "+
+				"and module-graph pruning will stop keeping it out of every product's go.mod", pkg)
 		}
 	}
 }

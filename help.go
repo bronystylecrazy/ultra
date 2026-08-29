@@ -362,6 +362,13 @@ is a second implementation.`,
 				long: `Scaffold a product on the paved road: main.go + internal/app +
 config.toml + Taskfile + AGENTS.md.
 
+Typed with NO arguments at a terminal, this asks instead: an interactive
+form for the name, the capabilities, and the design system, which resolves
+its own dependencies as you go. It prints the equivalent flag command —
+copy that into a README or a CI file. Any argument, any flag, or a piped
+stdin/stdout takes the flag form below, so scripts and agents never meet
+a prompt.
+
 --db --web --auth are ON by default; --bare turns all three off, and a
 later --db/--web/--auth turns one back on. --mqtt is the one OPT-IN
 capability: it wires the embedded broker (mqtt.Use + auth.APIKeys) and the

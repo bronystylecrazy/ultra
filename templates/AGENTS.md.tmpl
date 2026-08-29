@@ -45,6 +45,11 @@ task e2e          the golden path in a real browser against the built binary
 {{- end}}
 go run . <cmd>    the binary is the toolbox: routes, graph, doctor, codes,
                   config init, config reference, infra compose, openapi{{if .Web}}, client{{end}}
+ultra new <name> --flags
+                  scaffold another product. ALWAYS the flag form: bare
+                  `ultra new` on a terminal opens an interactive wizard for a
+                  human, and an agent must never be waiting on a prompt. The
+                  wizard prints the equivalent flag command — use that
 {{- if .MQTT}}
 go run . topics   every bus subscription (the contract producers publish against)
 go run . topics schemas    the declared payload types as JSON Schemas
