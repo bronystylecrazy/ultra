@@ -203,7 +203,8 @@ func (f *wizardForm) answers() wizardAnswers {
 	}.normalize()
 }
 
-// build assembles the five questions. Each group is one screen; esc walks back
+// build assembles the questions: name, capabilities, design system, and the
+// summary the last one confirms. Each group is one screen; esc walks back
 // through them and ctrl-c leaves with ErrUserAborted before anything is written.
 //
 // in is a parameter rather than os.Stdin so a test can drive the form to a
@@ -222,6 +223,13 @@ func (f *wizardForm) build(in io.Reader, out io.Writer) *huh.Form {
 
 	caps := huh.NewMultiSelect[string]().
 		Title("Capabilities").
+		// Static options with a LIVE description. Deriving the options from
+		// the selection (huh's OptionsFunc) would let the auth box tick
+		// itself, which is the prettier version of this, but the field
+		// renders empty under it — the options reload asynchronously and the
+		// list never arrives. The dependency is announced here instead, the
+		// instant mqtt is ticked, and applied by normalize, which is the
+		// thing that actually guarantees it.
 		Options(
 			huh.NewOption("db     postgres + migrations + sqlc stores", capDB),
 			huh.NewOption("web    embedded SvelteKit SPA", capWeb),
@@ -269,8 +277,10 @@ func (f *wizardForm) build(in io.Reader, out io.Writer) *huh.Form {
 		WithOutput(out).
 		WithShowHelp(true)
 	// A terminal that cannot draw is asked in plain text instead: huh's
-	// accessible mode prints numbered prompts and reads lines.
-	if os.Getenv("TERM") == "dumb" {
+	// accessible mode prints numbered prompts and reads lines. An ABSENT TERM
+	// counts — dev.go makes the same reading, that a child with no TERM should
+	// assume the dumbest terminal there is.
+	if t := os.Getenv("TERM"); t == "" || t == "dumb" {
 		form = form.WithAccessible(true)
 	}
 	return form
@@ -298,8 +308,11 @@ func wizardTheme(out io.Writer) *huh.Theme {
 	gutter := lipgloss.Border{Left: "│"}
 	t.Focused.Base = t.Focused.Base.Border(gutter, false, false, false, true).PaddingLeft(1)
 	t.Blurred.Base = t.Focused.Base.BorderStyle(lipgloss.HiddenBorder())
+	// In a single-select the cursor IS the answer, so it carries the ◆. In a
+	// multi-select the ◆/◇ is the checkbox and the cursor is a separate thing
+	// that has to look different — the two glyphs land in the same row.
 	t.Focused.SelectSelector = lipgloss.NewStyle().SetString("◆ ")
-	t.Focused.MultiSelectSelector = lipgloss.NewStyle().SetString("◆ ")
+	t.Focused.MultiSelectSelector = lipgloss.NewStyle().SetString("❯ ")
 	t.Focused.SelectedPrefix = lipgloss.NewStyle().SetString("◆ ")
 	t.Focused.UnselectedPrefix = lipgloss.NewStyle().SetString("◇ ")
 	t.Blurred.SelectSelector = lipgloss.NewStyle().SetString("  ")
