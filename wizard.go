@@ -67,6 +67,9 @@ type wizardAnswers struct {
 	Auth bool
 	MQTT bool
 	DS   string
+	// Frontend is the framework question, asked only with web on — like DS,
+	// it is a `ultra new` flag because it decides which FILES exist.
+	Frontend string
 	// Infra is the Infrastructure page: preset names, in catalog order. They
 	// are deliberately NOT scaffoldData fields — an infrastructure preset
 	// changes one line of main.go and no files at all, so it belongs to
@@ -91,9 +94,14 @@ func (a wizardAnswers) normalize() wizardAnswers {
 	// the DS question is hidden when web is off — so drop whatever a
 	// previously-answered-then-revised run left behind.
 	if !a.Web {
-		a.DS = ""
-	} else if a.DS == "" {
-		a.DS = dsConnected
+		a.DS, a.Frontend = "", ""
+	} else {
+		if a.DS == "" {
+			a.DS = dsConnected
+		}
+		if a.Frontend == "" {
+			a.Frontend = feSvelte
+		}
 	}
 	// The same resolution one rung out: an infrastructure preset whose
 	// dependency the TREE owns turns that capability on, because `ultra add
@@ -145,7 +153,7 @@ func (a wizardAnswers) args() []string {
 		}
 	}
 	if a.Web {
-		args = append(args, "--ds", a.DS)
+		args = append(args, "--frontend", a.Frontend, "--ds", a.DS)
 	}
 	return args
 }
@@ -195,6 +203,7 @@ func (a wizardAnswers) data() scaffoldData {
 		Auth:      a.Auth,
 		MQTT:      a.MQTT,
 		DS:        a.DS,
+		Frontend:  a.Frontend,
 	}
 }
 
@@ -205,7 +214,7 @@ func (a wizardAnswers) summary() string {
 	d := a.data()
 	line := d.Name + " — " + strings.ReplaceAll(strings.TrimPrefix(capsSuffix(d), ", "), "+", ", ")
 	if d.Web {
-		line += " · " + d.DS + " DS"
+		line += " · " + d.Frontend + " · " + d.DS + " DS"
 	}
 	if infra := a.normalize().Infra; len(infra) > 0 {
 		line += " · +" + strings.Join(infra, " +")
@@ -236,24 +245,26 @@ func validateProductName(s string) error {
 // summary would hash equal forever and render whatever it computed first,
 // which is the empty answer set.
 type wizardForm struct {
-	Name  string
-	Caps  []string
-	Infra []string
-	DS    string
-	OK    bool
+	Name     string
+	Caps     []string
+	Infra    []string
+	Frontend string
+	DS       string
+	OK       bool
 }
 
 // answers reads the collected values back out. Normalized here so a caller
 // cannot get an un-resolved combination out of the form at all.
 func (f *wizardForm) answers() wizardAnswers {
 	return wizardAnswers{
-		Name:  strings.TrimSpace(f.Name),
-		DB:    slices.Contains(f.Caps, capDB),
-		Web:   slices.Contains(f.Caps, capWeb),
-		Auth:  slices.Contains(f.Caps, capAuth),
-		MQTT:  slices.Contains(f.Caps, capMQTT),
-		DS:    f.DS,
-		Infra: f.Infra,
+		Name:     strings.TrimSpace(f.Name),
+		DB:       slices.Contains(f.Caps, capDB),
+		Web:      slices.Contains(f.Caps, capWeb),
+		Auth:     slices.Contains(f.Caps, capAuth),
+		MQTT:     slices.Contains(f.Caps, capMQTT),
+		DS:       f.DS,
+		Frontend: f.Frontend,
+		Infra:    f.Infra,
 	}.normalize()
 }
 
@@ -267,6 +278,7 @@ func (f *wizardForm) answers() wizardAnswers {
 func (f *wizardForm) build(in io.Reader, out io.Writer) *huh.Form {
 	f.Caps = []string{capDB, capWeb, capAuth} // the paved road, preselected
 	f.DS = dsConnected
+	f.Frontend = feSvelte
 
 	name := huh.NewInput().
 		Title("Product name").
@@ -286,7 +298,7 @@ func (f *wizardForm) build(in io.Reader, out io.Writer) *huh.Form {
 		// thing that actually guarantees it.
 		Options(
 			huh.NewOption("db     postgres + migrations + sqlc stores", capDB),
-			huh.NewOption("web    embedded SvelteKit SPA", capWeb),
+			huh.NewOption("web    embedded SPA — SvelteKit, or React", capWeb),
 			huh.NewOption("auth   identity + route enforcement — secure by default", capAuth),
 			huh.NewOption("mqtt   embedded broker + Events surfaces — requires auth, toggles it on", capMQTT),
 		).
@@ -339,6 +351,20 @@ func (f *wizardForm) build(in io.Reader, out io.Writer) *huh.Form {
 		}, &f.Infra).
 		Value(&f.Infra)
 
+	// Asked ONLY when there is a frontend to build: `--frontend` without
+	// `--web` is a usage error, and a question whose answer cannot matter is
+	// noise. Svelte first — it is the road the doctrine was written on.
+	frontend := huh.NewGroup(
+		huh.NewSelect[string]().
+			Title("Frontend").
+			Description("the framework under web/ — the Go side is identical either way").
+			Options(
+				huh.NewOption("svelte   SvelteKit + Svelte 5 runes (the default)", feSvelte),
+				huh.NewOption("react    Vite + React 19 + react-router", feReact),
+			).
+			Value(&f.Frontend),
+	).WithHideFunc(func() bool { return !slices.Contains(f.Caps, capWeb) })
+
 	// Asked ONLY when there is a frontend to style: `--ds` without `--web` is
 	// a usage error, and a question whose answer cannot matter is noise.
 	ds := huh.NewGroup(
@@ -346,7 +372,7 @@ func (f *wizardForm) build(in io.Reader, out io.Writer) *huh.Form {
 			Title("Design system").
 			Description("the frontend's styling foundation").
 			Options(
-				huh.NewOption("connected   the company DS from depot", dsConnected),
+				huh.NewOption("connected   the company DS (depot for Svelte, GitLab for React)", dsConnected),
 				huh.NewOption("bare        Tailwind only — pick this without depot access", dsBare),
 			).
 			Value(&f.DS),
@@ -363,7 +389,7 @@ func (f *wizardForm) build(in io.Reader, out io.Writer) *huh.Form {
 			Value(&f.OK),
 	)
 
-	form := huh.NewForm(huh.NewGroup(name), huh.NewGroup(caps), huh.NewGroup(infra), ds, confirm).
+	form := huh.NewForm(huh.NewGroup(name), huh.NewGroup(caps), huh.NewGroup(infra), frontend, ds, confirm).
 		WithTheme(wizardTheme(out)).
 		WithKeyMap(wizardKeyMap()).
 		WithInput(in).

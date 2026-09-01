@@ -134,7 +134,7 @@ var App = di.Options(
 	auth.LoginRoutes,   // POST /auth/login|logout — browsers (cookie)
 	auth.SessionRoutes, // self-service session list/revoke
 	auth.MeRoute,       // GET /auth/me: identity + effective permissions —
-	                    // web/src/lib/auth.svelte.ts loads the session from it
+	                    // web/src/lib/auth{{if eq .Frontend "react"}}.ts{{else}}.svelte.ts{{end}} loads the session from it
 	auth.Protect,       // enforcement for the stack routes (web enforces its own)
 {{- if .MQTT}}
 	auth.APIKeys(), // device credentials for the broker's CONNECT gate

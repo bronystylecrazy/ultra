@@ -1,0 +1,19 @@
+{{if eq .DS "connected" -}}
+/* The company design system, React flavor. This ONE import already pulls in
+   Tailwind v4 and the token theme — importing "tailwindcss" again here would
+   register the utilities twice. */
+@import "@connected/tailwindcss-connected-design/themes/default.css";
+/* Tailwind skips node_modules by default — without this, DS components render unstyled. */
+@source "../node_modules/@connected/react-connected-design/dist";
+{{- else -}}
+@import "tailwindcss";
+
+/* Tailwind v4 is CSS-first: a name declared here IS a utility. Uncomment and
+   rename — these are the axes a product usually needs first. */
+@theme {
+	/* --color-brand-500: oklch(54.159% 0.0924 194.77); */
+	/* --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif; */
+	/* --spacing-XL: 1.5rem; */
+	/* --radius-M: 0.5rem; */
+}
+{{- end}}

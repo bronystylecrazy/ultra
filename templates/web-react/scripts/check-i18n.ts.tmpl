@@ -1,0 +1,193 @@
+#!/usr/bin/env bun
+// machinery — maintained by ultra; you rarely edit this file.
+/**
+ * check-i18n — the COVERAGE half of the i18n gate.
+ *
+ * Catalog parity (I18N0202) only audits keys that already EXIST: it proves
+ * every locale carries every key some locale carries. It is blind to the
+ * string that was never made a key at all — hardcoded English sails through
+ * `stack.Validate`, through `tsc`, and into production.
+ *
+ * This walks the JSX and flags what the user can read but the catalog has
+ * never heard of:
+ *   (a) JSX TEXT that is prose, and
+ *   (b) user-facing ATTRIBUTE literals (placeholder, label, title, aria-label,
+ *       alt)
+ * unless the value is an expression — `{t('feature.key')}` — or the literal is
+ * listed in i18n-allow.txt.
+ *
+ * The heuristic errs toward silence. Punctuation, single letters, `<code>` and
+ * `<pre>` contents, and anything already an expression are not prose, and
+ * src/lib/api, src/lib/i18n and src/lib/ui are generated or vocabulary, not
+ * copy. What survives all of that is either a missing key or a deliberate
+ * literal, and i18n-allow.txt is where deliberate literals go.
+ */
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
+
+const WEB = fileURLToPath(new URL('..', import.meta.url))
+const ALLOW_FILE = join(WEB, 'i18n-allow.txt')
+
+/** Where copy lives. */
+const ROOTS = ['src/routes', 'src/lib', 'src/App.tsx']
+/** Generated client, generated catalogs, and the design-system vocabulary. */
+const SKIP = ['src/lib/api', 'src/lib/i18n', 'src/lib/ui']
+/** Attributes a human reads. `title` covers both the tag and the tooltip. */
+const ATTRS = new Set(['placeholder', 'label', 'title', 'aria-label', 'alt'])
+/** Elements whose text is machinery, not copy. */
+const OPAQUE = new Set(['script', 'style', 'code', 'pre', 'kbd', 'samp'])
+/** Prose is two adjacent letters. "3", "—", "a" and "e.g." are not. */
+const PROSE = /\p{L}{2,}/u
+
+type Finding = { rel: string; line: number; column: number; text: string; attr: string | null }
+
+const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+
+/** Reads the allowlist: one literal per line, `#` comments, blanks ignored. */
+function readAllow(): Set<string> {
+  const allow = new Set<string>()
+  if (!existsSync(ALLOW_FILE)) return allow
+  for (const line of readFileSync(ALLOW_FILE, 'utf8').split('\n')) {
+    const s = line.trim()
+    if (s && !s.startsWith('#')) allow.add(s)
+  }
+  return allow
+}
+
+function jsxFiles(path: string, out: string[] = []): string[] {
+  if (!existsSync(path)) return out
+  if (/\.(tsx|jsx)$/.test(path)) {
+    out.push(path)
+    return out
+  }
+  for (const e of readdirSync(path, { withFileTypes: true })) {
+    if (e.name === 'node_modules' || e.name.startsWith('.')) continue
+    const p = join(path, e.name)
+    if (e.isDirectory()) jsxFiles(p, out)
+    else if (/\.(tsx|jsx)$/.test(e.name)) out.push(p)
+  }
+  return out
+}
+
+/** A guessed key, so the fix is a copy-paste and not a naming decision. */
+function suggest(rel: string, text: string): string {
+  const parts = rel.replace(/\\/g, '/').split('/')
+  parts.pop()
+  const feature =
+    parts.reverse().find((p) => p && p !== 'src' && p !== 'routes' && p !== 'lib' && !p.startsWith('(')) ?? 'app'
+  const slug =
+    text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '_')
+      .replace(/^_+|_+$/g, '')
+      .split('_')
+      .filter(Boolean)
+      .slice(0, 4)
+      .join('_') || 'key'
+  return `${feature.replace(/[^\p{L}\p{N}]+/gu, '_')}.${slug}`
+}
+
+/** The tag of a JSX element, lowercased — '' for a member expression. */
+function tagOf(node: ts.JsxElement | ts.JsxSelfClosingElement): string {
+  const name = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName
+  return ts.isIdentifier(name) ? name.text.toLowerCase() : ''
+}
+
+function scan(rel: string, src: string, found: Finding[]) {
+  const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const push = (pos: number, text: string, attr: string | null) => {
+    const t = norm(text)
+    if (!PROSE.test(t)) return
+    const { line, character } = sf.getLineAndCharacterOfPosition(pos)
+    found.push({ rel, line: line + 1, column: character + 1, text: t, attr })
+  }
+
+  const attributes = (attrs: ts.JsxAttributes) => {
+    for (const a of attrs.properties) {
+      // Spreads carry no literal to check.
+      if (!ts.isJsxAttribute(a) || !ts.isIdentifier(a.name)) continue
+      const key = a.name.text.toLowerCase()
+      if (!ATTRS.has(key)) continue
+      // A string literal is a literal; an expression container is already
+      // {t('…')} or something else we cannot and should not judge.
+      if (a.initializer && ts.isStringLiteral(a.initializer)) push(a.initializer.getStart(sf), a.initializer.text, key)
+    }
+  }
+
+  const walk = (node: ts.Node, opaque: boolean) => {
+    if (ts.isJsxText(node)) {
+      if (!opaque) push(node.getStart(sf), node.text, null)
+      return
+    }
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+      attributes(ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes)
+      const inner = opaque || OPAQUE.has(tagOf(node))
+      ts.forEachChild(node, (c) => walk(c, inner))
+      return
+    }
+    ts.forEachChild(node, (c) => walk(c, opaque))
+  }
+  walk(sf, false)
+}
+
+// ---- run ---------------------------------------------------------------------
+
+// No generated catalogs means no t() to route anything through: this project
+// has not wired the i18n preset (or has not run `task gen` yet), and demanding
+// keys that cannot exist would be a wall, not a gate.
+if (!existsSync(join(WEB, 'src', 'lib', 'i18n'))) {
+  console.log('check-i18n: no src/lib/i18n — i18n is not wired in this project. Skipped.')
+  process.exit(0)
+}
+
+const allow = readAllow()
+const used = new Set<string>()
+const found: Finding[] = []
+
+for (const root of ROOTS) {
+  for (const abs of jsxFiles(join(WEB, root))) {
+    const rel = relative(WEB, abs).split(sep).join('/')
+    if (SKIP.some((s) => rel === s || rel.startsWith(s + '/'))) continue
+    scan(rel, readFileSync(abs, 'utf8'), found)
+  }
+}
+
+const flagged = found.filter((f) => {
+  if (allow.has(f.text)) {
+    used.add(f.text)
+    return false
+  }
+  return true
+})
+
+for (const entry of allow) {
+  if (!used.has(entry)) console.log(`check-i18n: note — i18n-allow.txt no longer needs ${JSON.stringify(entry)}`)
+}
+
+if (flagged.length === 0) {
+  console.log(`check-i18n: every visible string goes through t() (${allow.size} allowlisted).`)
+  process.exit(0)
+}
+
+console.error(`check-i18n: ${flagged.length} visible string(s) never reach a catalog.\n`)
+for (const f of flagged) {
+  const key = suggest(f.rel, f.text)
+  console.error(`  ${f.rel}:${f.line}:${f.column}${f.attr ? `  (${f.attr})` : ''}`)
+  // The literal, raw and unquoted: this line is what an allowlist entry is.
+  console.error(`    ${f.text}`)
+  console.error(`    fix: ${f.attr ? `${f.attr}=` : ''}{t('${key}')}\n`)
+}
+console.error(
+  [
+    'Every visible string is a t() key. Add it to EVERY catalog under messages/',
+    '(a key in en.toml and not th.toml fails stack.Validate as I18N0202), run',
+    "`task gen`, then import { t } from '$lib/i18n/locale.react'.",
+    '',
+    'A deliberate literal — a brand name, a symbol, dev-only copy — goes in',
+    'web/i18n-allow.txt: copy the middle line of a report above, verbatim, onto',
+    'a line of its own.',
+  ].join('\n'),
+)
+process.exit(1)

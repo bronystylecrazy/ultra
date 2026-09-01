@@ -28,6 +28,10 @@ var wizardRuns = []struct {
 	// form the way a human produces it: tick mqtt, leave auth alone.
 	{"mqtt without auth", wizardForm{Name: "edge", Caps: []string{capMQTT}, DS: dsConnected}},
 	{"everything", wizardForm{Name: "depot-reg", Caps: []string{capDB, capWeb, capAuth, capMQTT}, DS: dsBare}},
+	{"react", wizardForm{Name: "kiosk", Caps: []string{capWeb, capAuth}, Frontend: feReact, DS: dsConnected}},
+	// A revised run: web ticked, react chosen, then web unticked — the
+	// answer must not leak into a command where --frontend is a usage error.
+	{"react without web", wizardForm{Name: "tiny", Frontend: feReact, DS: dsBare}},
 }
 
 // TestWizardEmitsTheSameScaffoldAsItsEchoedCommand is the wizard's whole

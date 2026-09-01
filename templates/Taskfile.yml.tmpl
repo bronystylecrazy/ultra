@@ -15,7 +15,7 @@ tasks:
       - go run .
 {{if .Web}}
   dev:web:
-    desc: The SvelteKit dev server; it proxies the contract paths to dev:api
+    desc: The {{if eq .Frontend "react"}}Vite + React{{else}}SvelteKit{{end}} dev server; it proxies the contract paths to dev:api
     dir: web
     cmds:
       - bun run dev
@@ -43,7 +43,7 @@ tasks:
       - set -o pipefail; go test -json ./... | tee .ultra/test.json
 {{if .Web}}
   check:
-    desc: svelte-check + i18n coverage + API-usage gate — the frontend blast radius of a contract change
+    desc: {{if eq .Frontend "react"}}tsc{{else}}svelte-check{{end}} + i18n coverage + API-usage gate — the frontend blast radius of a contract change
     dir: web
     cmds:
       - bun run check

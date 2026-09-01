@@ -1,0 +1,66 @@
+// The root shell every page renders inside — importing app.css here is what
+// makes the stylesheet exist at all. GROW this file: chrome, providers, and
+// anything that must outlive a navigation belong here, not in a route.
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter, Route, Routes{{if .Auth}}, Navigate, Outlet, useLocation{{end}} } from 'react-router';
+{{- if .Auth}}
+import { useEffect } from 'react';
+import { useSession } from '$lib/auth';
+import { Login } from './routes/Login';
+{{- end}}
+import { Home } from './routes/Home';
+{{- if eq .DS "connected"}}
+import { Toaster } from '@connected/react-connected-design/toast';
+{{- end}}
+import './app.css';
+
+// The generated client's queries need this mounted; one per app.
+const queryClient = new QueryClient();
+{{if .Auth}}
+// ─── auth guard ─── public app: delete this block, keep /login ───────────
+// The imports ride INSIDE the markers' reach: delete marker-to-marker, drop
+// the Navigate/Outlet/useLocation/useEffect/useSession imports above, and
+// what is left is a complete, valid App.tsx with no dangling references.
+//
+// The guard, in the ONE place every route passes through: with auth.Protect
+// wired, an anonymous visitor gets 401 from every call, so send them to the
+// login page instead of rendering a screen that can only fail.
+//
+// The identity comes from the session cookie, so this survives a reload — the
+// store is loaded once and the answer is reused on later navigations. Signing
+// out (session.signOut()) empties it, and the next navigation lands here again.
+function RequireSession() {
+	const { authenticated, loaded, load } = useSession();
+	const location = useLocation();
+	useEffect(() => {
+		// A 401 is not an error here — it IS the signed-out state, and load()
+		// resolves null rather than throwing.
+		if (!loaded) void load();
+	}, [loaded, load]);
+	if (!loaded) return null;
+	if (!authenticated) return <Navigate to="/login" replace state={ { from: location } } />;
+	return <Outlet />;
+}
+// ─── end auth guard ──────────────────────────────────────────────────────
+{{end}}
+export function App() {
+	return (
+		<QueryClientProvider client={queryClient}>
+{{- if eq .DS "connected"}}
+			<Toaster />
+{{- end}}
+			<BrowserRouter>
+				<Routes>
+{{- if .Auth}}
+					<Route path="/login" element={<Login />} />
+					<Route element={<RequireSession />}>
+						<Route path="/" element={<Home />} />
+					</Route>
+{{- else}}
+					<Route path="/" element={<Home />} />
+{{- end}}
+				</Routes>
+			</BrowserRouter>
+		</QueryClientProvider>
+	);
+}

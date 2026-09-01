@@ -1,0 +1,28 @@
+# Calls that DELIBERATELY do not go through the generated client.
+#
+# `bun run check` runs scripts/check-api-usage.ts, which flags a raw
+# fetch()/XMLHttpRequest at one of the backend's own path prefixes, a TanStack
+# primitive called instead of the generated use<Op>Query/use<Op>Mutation, and
+# (as a warning) a catch that throws away the error forms.ts would have turned
+# into per-field messages.
+#
+# The generated hooks and forms.ts ARE the API surface: they carry the base
+# URL, the auth header, the 401 refresh-and-retry, the typed Problem and the
+# 422 → <Field> binding, and a contract change breaks the CALL SITE instead of
+# the user. An escape here is a real one — an upload that needs XHR progress
+# events, a third-party endpoint that happens to share a prefix, a stream the
+# contract cannot describe.
+#
+# One entry per line: a path relative to web/, optionally narrowed to one rule,
+# and ALWAYS a reason after `#` — an entry with no reason is itself an error.
+#
+#   src/lib/upload/xhr.ts:raw-fetch  # upload progress events; fetch has none
+#   src/lib/legacy/poll.ts           # ported verbatim, rewrite tracked in #412
+#
+# Rules: raw-fetch, hand-rolled-hook, swallowed-error. A bare path allows all
+# three in that file. An entry nothing matches is reported as a note, so this
+# file stays honest as the screens change.
+{{- if .Auth}}
+
+src/lib/auth.ts:raw-fetch  # the session store IS the auth surface — /auth endpoints are stack routes outside the generated contract
+{{- end}}

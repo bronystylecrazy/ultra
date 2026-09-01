@@ -1,0 +1,112 @@
+// The session store — SCAFFOLD-OWNED, yours to grow (not generated: the
+// /auth endpoints are framework stack routes outside the web contract, so
+// the generated client does not cover them). Cookie flavor: the server sets
+// an HttpOnly cookie on login, this tab holds nothing, a reload stays
+// signed in.
+//
+// One plain store, one snapshot replaced wholesale on every change, and a
+// useSession() hook over useSyncExternalStore — the same shape the generated
+// .react.ts layers use, so there is one way to hold shared state here.
+//
+// The raw fetches below are a sanctioned escape from the generated client,
+// listed in web/api-usage-allow.txt with the reason.
+import { useSyncExternalStore } from 'react';
+
+type Identity = {
+	subject: string;
+	kind?: string;
+	roles?: string[];
+	/** Effective, role-expanded permissions — what can() checks. */
+	permissions?: string[];
+};
+
+export type SessionSnapshot = {
+	identity: Identity | null;
+	/** True once /auth/me has answered — signed in or not. */
+	loaded: boolean;
+	authenticated: boolean;
+};
+
+class Session {
+	#snap: SessionSnapshot = { identity: null, loaded: false, authenticated: false };
+	#listeners = new Set<() => void>();
+
+	get snapshot() {
+		return this.#snap;
+	}
+	get identity() {
+		return this.#snap.identity;
+	}
+	get loaded() {
+		return this.#snap.loaded;
+	}
+	get authenticated() {
+		return this.#snap.authenticated;
+	}
+
+	subscribe = (listener: () => void) => {
+		this.#listeners.add(listener);
+		return () => this.#listeners.delete(listener);
+	};
+
+	#set(identity: Identity | null, loaded = true) {
+		this.#snap = { identity, loaded, authenticated: identity !== null };
+		for (const l of this.#listeners) l();
+	}
+
+	/** GET /auth/me. A 401 IS the signed-out state, never an error. */
+	load = async () => {
+		try {
+			const res = await fetch('/auth/me', { credentials: 'include' });
+			this.#set(res.ok ? ((await res.json()) as Identity) : null);
+		} catch {
+			this.#set(null);
+		}
+	};
+
+	/**
+	 * POST /auth/login, then /auth/me so the store is populated before the
+	 * next route renders. Throws Error carrying the problem's own message —
+	 * already localized by the server's i18n catalogs. Never invent copy for
+	 * a failure the API named.
+	 */
+	signIn = async (creds: { username: string; password: string }) => {
+		const res = await fetch('/auth/login', {
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(creds)
+		});
+		if (!res.ok) {
+			let message = res.statusText;
+			try {
+				message = ((await res.json()) as { message?: string }).message ?? message;
+			} catch {
+				// a non-JSON failure keeps the status text
+			}
+			throw new Error(message);
+		}
+		await this.load();
+	};
+
+	/** POST /auth/logout and empty the store; the next navigation hits the guard. */
+	signOut = async () => {
+		await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+		this.#set(null);
+	};
+
+	/** Gate UI with session.can('zones.read') — the server still decides. */
+	can = (perm: string) => {
+		const perms = this.#snap.identity?.permissions ?? [];
+		return perms.includes('*') || perms.includes(perm);
+	};
+}
+
+export const session = new Session();
+
+/** useSession subscribes a component to the store: it re-renders on every
+ *  load/signIn/signOut. Outside a component read `session` directly. */
+export function useSession() {
+	const snap = useSyncExternalStore(session.subscribe, () => session.snapshot, () => session.snapshot);
+	return { ...snap, load: session.load, signIn: session.signIn, signOut: session.signOut, can: session.can };
+}

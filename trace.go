@@ -435,7 +435,7 @@ func newestSourceTime(dir string) time.Time {
 		}
 		switch {
 		case strings.HasSuffix(path, ".go"), strings.HasSuffix(path, ".sql"),
-			strings.HasSuffix(path, ".ts"), strings.HasSuffix(path, ".svelte"),
+			strings.HasSuffix(path, ".ts"), strings.HasSuffix(path, ".tsx"), strings.HasSuffix(path, ".svelte"),
 			filepath.Base(path) == contractFile:
 			if fi, err := d.Info(); err == nil && fi.ModTime().After(newest) {
 				newest = fi.ModTime()

@@ -48,6 +48,16 @@ const (
 	dsBare      = "bare"
 )
 
+// The --frontend values. Svelte is the road the doctrine was written on and
+// stays the default; React is the same product with a Vite + React 19 +
+// react-router shell under web/, the same Go side (spa_embed.go embeds
+// web/build either way), and a generated client whose reactive layer is
+// hooks instead of runes — `./app client` reads which off web/package.json.
+const (
+	feSvelte = "svelte"
+	feReact  = "react"
+)
+
 // scaffoldData is what every template sees. The three capability booleans
 // are the whole story: a file exists only when a flag asks for it, and the
 // templates never emit a placeholder for a capability that is off.
@@ -57,10 +67,11 @@ type scaffoldData struct {
 	Version   string // framework version the product requires
 	GoVersion string // the go directive
 	DB        bool   // --db:   pg + migrate + internal/db
-	Web       bool   // --web:  SPA seam + web/ SvelteKit skeleton
+	Web       bool   // --web:  SPA seam + web/ skeleton (SvelteKit, or React under --frontend react)
 	Auth      bool   // --auth: contrib/auth wired and enforcing
 	MQTT      bool   // --mqtt: the embedded broker + the mqtt feature surface (needs --auth)
 	DS        string // --ds:   the frontend's design system (--web only)
+	Frontend  string // --frontend: svelte (default) or react (--web only)
 	// Compliance is never a `ultra new` flag: it is detected off the tree
 	// (requirements/ present) by initShape, so `ultra init --force AGENTS.md`
 	// renders the requirements law block only for products that opted in.
@@ -178,7 +189,49 @@ func scaffoldFiles(d scaffoldData) map[string]string {
 		"messages/en.toml.tmpl": "messages/en.toml",
 		"messages/th.toml.tmpl": "messages/th.toml",
 	}
-	if d.Web {
+	if d.Web && d.Frontend == feReact {
+		// The embedspa build-tag pair: dev serves no frontend by design.
+		files["spa.go.tmpl"] = "spa.go"
+		files["spa_embed.go.tmpl"] = "spa_embed.go"
+		// A minimal Vite + React 19 SPA, routed by react-router, inside the
+		// module (go:embed cannot reach a sibling directory). It builds to
+		// web/build like the SvelteKit one, so the Go side is identical.
+		files["web-react/package.json.tmpl"] = "web/package.json"
+		files["web-react/vite.config.ts.tmpl"] = "web/vite.config.ts"
+		files["web-react/tsconfig.json.tmpl"] = "web/tsconfig.json"
+		files["web-react/gitignore.tmpl"] = "web/.gitignore"
+		files["web-react/index.html.tmpl"] = "web/index.html"
+		files["web-react/src/main.tsx.tmpl"] = "web/src/main.tsx"
+		files["web-react/src/App.tsx.tmpl"] = "web/src/App.tsx"
+		files["web-react/src/routes/Home.tsx.tmpl"] = "web/src/routes/Home.tsx"
+		if d.Auth {
+			// The door, React flavor: App.tsx's RequireSession sends anonymous
+			// visitors here; unlike the seeded user, this is replaced, never
+			// deleted.
+			files["web-react/src/routes/Login.tsx.tmpl"] = "web/src/routes/Login.tsx"
+			// The session store the guard and the login page share, with its
+			// useSession() hook. SCAFFOLD-OWNED, not generated.
+			files["web-react/src/lib/auth.ts.tmpl"] = "web/src/lib/auth.ts"
+		}
+		files["web-react/src/app.css.tmpl"] = "web/src/app.css"
+		if d.DS == dsConnected {
+			// The React design system is the same @connected scope on depot
+			// as the Svelte one, so the registry files are shared verbatim.
+			files["web/npmrc.tmpl"] = "web/.npmrc"
+			files["web/bunfig.toml.tmpl"] = "web/bunfig.toml"
+		}
+		// The framework-neutral half of web/: the seed proxy table, the
+		// golden e2e, and the two gates — the gates parse JSX through the
+		// TypeScript compiler API instead of svelte/compiler.
+		files["web/src/lib/api/gitkeep.tmpl"] = "web/src/lib/api/.gitkeep"
+		files["web/src/lib/api/vite.proxy.json.tmpl"] = "web/src/lib/api/vite.proxy.json"
+		files["web/playwright.config.ts.tmpl"] = "web/playwright.config.ts"
+		files["web/e2e/golden.spec.ts.tmpl"] = "web/e2e/golden.spec.ts"
+		files["web-react/scripts/check-i18n.ts.tmpl"] = "web/scripts/check-i18n.ts"
+		files["web-react/i18n-allow.txt.tmpl"] = "web/i18n-allow.txt"
+		files["web-react/scripts/check-api-usage.ts.tmpl"] = "web/scripts/check-api-usage.ts"
+		files["web-react/api-usage-allow.txt.tmpl"] = "web/api-usage-allow.txt"
+	} else if d.Web {
 		// The embedspa build-tag pair: dev serves no frontend by design.
 		files["spa.go.tmpl"] = "spa.go"
 		files["spa_embed.go.tmpl"] = "spa_embed.go"
@@ -261,6 +314,9 @@ func scaffold(dir string, d scaffoldData) error {
 	// embedder — never renders a web/ whose app.css has no design system.
 	if d.Web && d.DS == "" {
 		d.DS = dsConnected
+	}
+	if d.Web && d.Frontend == "" {
+		d.Frontend = feSvelte
 	}
 	if d.plan != nil && d.From == "" {
 		d.From = d.plan.Source
@@ -419,6 +475,8 @@ func parseNewArgs(args []string, errW io.Writer) (newArgs, int) {
 			from, rest = rest[1], rest[2:]
 		case a == "--ds" && len(rest) > 1:
 			d.DS, rest = rest[1], rest[2:]
+		case a == "--frontend" && len(rest) > 1:
+			d.Frontend, rest = rest[1], rest[2:]
 		case strings.HasPrefix(a, "-"):
 			node := ultraTree().find("new")
 			fmt.Fprintf(errW, "Error: unknown flag %q for %q\n\n", a, node.path())
@@ -450,8 +508,20 @@ func parseNewArgs(args []string, errW io.Writer) (newArgs, int) {
 		fmt.Fprintf(errW, "Error: --ds needs --web — a design system with no frontend to style\n\n")
 		ultraTree().find("new").help(errW)
 		return newArgs{}, 2
+	case d.Frontend != "" && d.Frontend != feSvelte && d.Frontend != feReact:
+		fmt.Fprintf(errW, "Error: unknown --frontend value %q — use %s (SvelteKit, the default) or %s (Vite + React 19)\n\n",
+			d.Frontend, feSvelte, feReact)
+		ultraTree().find("new").help(errW)
+		return newArgs{}, 2
+	case d.Frontend != "" && !d.Web:
+		fmt.Fprintf(errW, "Error: --frontend needs --web — a frontend framework with no frontend to build\n\n")
+		ultraTree().find("new").help(errW)
+		return newArgs{}, 2
 	case d.Web && d.DS == "":
 		d.DS = dsConnected
+	}
+	if d.Web && d.Frontend == "" {
+		d.Frontend = feSvelte
 	}
 	if module == "" {
 		module = "example.com/" + name
@@ -540,14 +610,18 @@ replace directives in go.mod to build against a local checkout)
 	fmt.Fprintf(out, "\n%s is ready:\n  cd %s\n  ultra skill install  # vendors the doctrine into .claude/skills — do this first\n  task test        # the covenant: wiring + boot, then the contract gate\n  task dev:api     # serve on :%d (a dev build serves NO frontend — by design)\n",
 		name, name, d.HTTPPort)
 	if d.Web {
-		fmt.Fprint(out, "  task dev:web     # the SvelteKit dev server (bun install first)\n")
+		if d.Frontend == feReact {
+			fmt.Fprint(out, "  task dev:web     # the Vite + React dev server (bun install first)\n")
+		} else {
+			fmt.Fprint(out, "  task dev:web     # the SvelteKit dev server (bun install first)\n")
+		}
 		fmt.Fprint(out, "  task e2e         # the golden path in a browser (bunx playwright)\n")
 		if d.DS == dsConnected {
-			fmt.Fprint(out, `
-web/ is wired to @connected/svelte-connected-design, and web/.npmrc points the
+			fmt.Fprintf(out, `
+web/ is wired to @connected/%s-connected-design, and web/.npmrc points the
 @connected scope at depot — `+"`bun install`"+` needs depot auth. Without it,
 scaffold with --ds bare: the same Tailwind foundation, no design system.
-`)
+`, d.Frontend)
 		}
 	}
 	fmt.Fprintf(out, "\nThe first `task test` writes the committed contract artifacts —\nopenapi.json%s. Add them to the first commit:\nfrom then on a contract change that forgets `task contracts` fails the test.\n",

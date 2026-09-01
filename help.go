@@ -381,10 +381,19 @@ want — jobs, redis, ws, rate, s3 — is one line in main.go, so it is not a
 flag here at all: it is ` + "`ultra add <preset>`" + `, which works the day you
 scaffold and equally well three years later.
 
+--frontend picks the framework under web/ (--web only). svelte (the
+default) is SvelteKit + Svelte 5 runes, the road the doctrine was written
+on. react is Vite + React 19 + react-router, with the SAME Go side
+(spa_embed.go embeds web/build either way) and a generated client whose
+reactive layer is use* hooks and .react.ts stores instead of create* and
+.svelte.ts — ./app client reads which off web/package.json.
+
 --ds picks the frontend's design system (--web only). connected (the
-default) wires @connected/svelte-connected-design from the depot registry, so
-bun install needs depot auth. bare wires Tailwind v4 and an empty @theme:
-the open foundation, for a product that diverges deliberately.
+default) wires the company design system from the depot registry —
+@connected/svelte-connected-design, or @connected/react-connected-design
+under --frontend react — so bun install needs depot auth. bare
+wires Tailwind v4 and an empty @theme: the open foundation, for a product
+that diverges deliberately.
 
 --from is REVERSE scaffolding, the legacy-service on-ramp: an OpenAPI 3.x
 document in, a doctrine-shaped product out — a feature package per tag,
@@ -398,9 +407,10 @@ convert YAML first.`,
 					{"--version vX.Y.Z", "the framework version to require"},
 					{"--bare", "no db, no web, no auth"},
 					{"--db, --no-db", "Postgres pool + migrations (on by default)"},
-					{"--web, --no-web", "the SvelteKit frontend (on by default)"},
+					{"--web, --no-web", "the embedded frontend (on by default)"},
 					{"--auth, --no-auth", "identity + route enforcement (on by default)"},
 					{"--mqtt, --no-mqtt", "the embedded MQTT broker + feature Events (OFF by default; needs --auth)"},
+					{"--frontend svelte|react", "the framework under web/ (default: svelte)"},
 					{"--ds connected|bare", "the design system for --web (default: connected)"},
 					{"--from openapi.json", "reverse-scaffold from an OpenAPI 3.x document"},
 				},

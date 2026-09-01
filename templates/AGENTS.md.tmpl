@@ -163,13 +163,23 @@ several products run side by side. They are ordinary files: change them freely.
 - **The generated client IS the API surface.** Screens import the typed fetch
   functions from `$lib/api`; a hand-rolled `fetch('/api/…')` fails
   `bun run check` and needs an entry in `web/api-usage-allow.txt` naming why.
-  (`$lib/auth.svelte.ts` is the one scaffolded escape — the session store over
+  ({{if eq .Frontend "react"}}`$lib/auth.ts`{{else}}`$lib/auth.svelte.ts`{{end}} is the one scaffolded escape — the session store over
   the framework's /auth routes.)
+{{- if eq .Frontend "react"}}
+- **The frontend is React 19 + react-router, and the generated client's
+  reactive layer is hooks.** `use<Op>Query`/`use<Op>Mutation` from
+  `$lib/api/<resource>/hooks`, `use<Name>Stream` from
+  `$lib/api/<resource>/streams.react`, `useSession()` from `$lib/api/auth.react`,
+  `useLocale()`/`t()` from `$lib/i18n/locale.react`. Shared state is a plain
+  store with `subscribe` + a snapshot replaced wholesale, read through
+  `useSyncExternalStore` — the shape every generated `.react.ts` uses; do not
+  introduce a second state library for it.
+{{- end}}
 {{- if .Auth}}
-- **The login page and the redirect guard are separable.** `+layout.ts` holds
-  the whole guard — imports included — between its `auth guard` and
-  `end auth guard` markers. A PUBLIC app (docs, marketing) that still wires
-  `auth.Use()` deletes marker-to-marker and keeps `login/+page.svelte`. That
+- **The login page and the redirect guard are separable.** {{if eq .Frontend "react"}}`App.tsx`{{else}}`+layout.ts`{{end}} holds
+  the whole guard between its `auth guard` and `end auth guard` markers. A
+  PUBLIC app (docs, marketing) that still wires `auth.Use()` deletes
+  marker-to-marker and keeps {{if eq .Frontend "react"}}`routes/Login.tsx`{{else}}`login/+page.svelte`{{end}}. That
   deletion is SANCTIONED, not a scaffold violation; everything else in that
   file stays.
 {{- end}}

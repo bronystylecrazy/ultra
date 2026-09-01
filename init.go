@@ -121,6 +121,12 @@ func initShape(dir, module string) (d scaffoldData, wired map[string]*wiredUse, 
 		if bytes.Contains(pkg, []byte("@connected/")) {
 			d.DS = dsConnected
 		}
+		// The framework is a dependency too: a manifest that depends on react
+		// is a React product (the same reading `./app client` makes).
+		d.Frontend = feSvelte
+		if bytes.Contains(pkg, []byte(`"react"`)) {
+			d.Frontend = feReact
+		}
 	}
 	return d, wired, nil
 }
@@ -233,6 +239,9 @@ func cmdInit(args []string, out, errW io.Writer) int {
 		}
 	}
 	if d.Web {
+		if d.Frontend == feReact {
+			caps += ", react"
+		}
 		caps += ", ds " + d.DS
 	}
 	if d.Compliance {

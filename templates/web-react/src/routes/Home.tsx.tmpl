@@ -1,0 +1,13 @@
+// THIN pages: a route composes src/lib/<feature>/ and nothing else lives
+// here. This one is the page you are about to delete.
+export function Home() {
+	return (
+		<>
+			<h1>{{.Name}}</h1>
+			<p>
+				Screens consume the generated client in <code>src/lib/api</code> — declare
+				the contract in Go, run <code>task gen</code>, then import the hooks it emits.
+			</p>
+		</>
+	);
+}

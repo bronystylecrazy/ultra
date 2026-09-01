@@ -33,6 +33,12 @@ var combos = []struct {
 	// its derived [mqtt] port during the boot smoke.
 	{"bare+auth+mqtt", []string{"--bare", "--auth", "--mqtt"},
 		scaffoldData{Auth: true, MQTT: true}},
+	// The React frontend: the same product with a Vite + React shell under
+	// web/, proven on both design-system legs like the Svelte one.
+	{"bare+web+auth+react", []string{"--bare", "--web", "--auth", "--frontend", "react", "--ds", "bare"},
+		scaffoldData{Web: true, Auth: true, DS: dsBare, Frontend: feReact}},
+	{"react+connected", []string{"--frontend", "react"},
+		scaffoldData{DB: true, Web: true, Auth: true, DS: dsConnected, Frontend: feReact}},
 }
 
 func testData(name string, d scaffoldData) scaffoldData {
@@ -76,6 +82,22 @@ func TestFlagsShapeTheTree(t *testing.T) {
 		"web/src/routes/+page.svelte",
 		"web/svelte.config.js", "web/tsconfig.json", "web/vite.config.ts",
 	}
+	// The React shell: the same Go side and the same framework-neutral half
+	// of web/ (proxy seed, e2e, the two gates), a different skeleton.
+	webReact := []string{
+		"spa.go", "spa_embed.go",
+		"web/.gitignore", "web/api-usage-allow.txt",
+		"web/e2e/golden.spec.ts", "web/i18n-allow.txt",
+		"web/index.html",
+		"web/package.json",
+		"web/playwright.config.ts",
+		"web/scripts/check-api-usage.ts", "web/scripts/check-i18n.ts",
+		"web/src/App.tsx", "web/src/app.css",
+		"web/src/lib/api/.gitkeep", "web/src/lib/api/vite.proxy.json",
+		"web/src/main.tsx",
+		"web/src/routes/Home.tsx",
+		"web/tsconfig.json", "web/vite.config.ts",
+	}
 	db := []string{
 		"internal/db/migrations/00001_init.sql",
 		"internal/db/queries/.gitkeep",
@@ -90,11 +112,17 @@ func TestFlagsShapeTheTree(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := append([]string{}, core...)
-			if d.Web {
+			switch {
+			case d.Web && d.Frontend == feReact:
+				want = append(want, webReact...)
+				if d.Auth {
+					want = append(want, "web/src/routes/Login.tsx", "web/src/lib/auth.ts")
+				}
+			case d.Web:
 				want = append(want, web...)
-			}
-			if d.Web && d.Auth {
-				want = append(want, "web/src/routes/login/+page.svelte", "web/src/lib/auth.svelte.ts")
+				if d.Auth {
+					want = append(want, "web/src/routes/login/+page.svelte", "web/src/lib/auth.svelte.ts")
+				}
 			}
 			if d.DS == dsConnected {
 				want = append(want, "web/.npmrc", "web/bunfig.toml")
@@ -404,6 +432,160 @@ func TestDesignSystemShapesTheFrontend(t *testing.T) {
 	}
 	if bare("web/bunfig.toml") != "" {
 		t.Errorf("--ds bare must not write a bunfig:\n%s", bare("web/bunfig.toml"))
+	}
+}
+
+// TestReactFrontendShapesTheTree: --frontend react is recorded nowhere but in
+// the files it writes, so the files are what this test reads — the React
+// skeleton, the same embed on the Go side, the gates parsing JSX through the
+// TypeScript compiler API, the i18n allowlist seeded from the page it
+// pre-absolves, and the design-system leg pointing at the React DS on GitLab.
+func TestReactFrontendShapesTheTree(t *testing.T) {
+	render := func(ds string, auth bool) func(string) string {
+		dir := filepath.Join(t.TempDir(), "speedcheck")
+		if err := scaffold(dir, testData("speedcheck", scaffoldData{Web: true, Auth: auth, DS: ds, Frontend: feReact})); err != nil {
+			t.Fatal(err)
+		}
+		return func(rel string) string {
+			b, err := os.ReadFile(filepath.Join(dir, rel))
+			if err != nil && !strings.Contains(rel, ".npmrc") && !strings.Contains(rel, "bunfig") {
+				t.Fatal(err)
+			}
+			return string(b)
+		}
+	}
+
+	bare := render(dsBare, true)
+	for _, want := range []struct{ file, s string }{
+		// The manifest: React 19, the react-query adapter the generated hooks
+		// import, react-router, and `check` running tsc THEN both gates.
+		{"web/package.json", `"react": "^19`},
+		{"web/package.json", `"@tanstack/react-query": "^5`},
+		{"web/package.json", `"react-router": "^7`},
+		{"web/package.json", `"@vitejs/plugin-react": "^`},
+		{"web/package.json", `"tailwindcss": "^4`},
+		{"web/package.json", "tsc --noEmit -p tsconfig.json && bun scripts/check-i18n.ts && bun scripts/check-api-usage.ts"},
+		// The Go side is identical: vite builds to web/build, which
+		// spa_embed.go embeds whatever the framework.
+		{"web/vite.config.ts", "outDir: 'build'"},
+		{"web/vite.config.ts", "plugins: [tailwindcss(), react()]"},
+		{"web/vite.config.ts", "alias: { $lib:"},
+		{"spa_embed.go", "//go:embed all:web/build"},
+		// The shell: one QueryClient, the router, the guard between its
+		// markers, and the login route it sends anonymous visitors to.
+		{"web/src/App.tsx", "new QueryClient()"},
+		{"web/src/App.tsx", "<BrowserRouter>"},
+		{"web/src/App.tsx", "─── auth guard ───"},
+		{"web/src/App.tsx", "─── end auth guard ───"},
+		{"web/src/App.tsx", `<Navigate to="/login"`},
+		{"web/src/routes/Login.tsx", "session.signIn({ username, password })"},
+		{"web/src/lib/auth.ts", "useSyncExternalStore"},
+		{"web/src/lib/auth.ts", "export function useSession()"},
+		{"web/src/app.css", `@import "tailwindcss";`},
+		// The gates parse JSX through the TypeScript compiler, and police the
+		// React primitives rather than the Svelte ones.
+		{"web/scripts/check-i18n.ts", "from 'typescript'"},
+		{"web/scripts/check-i18n.ts", "ts.isJsxText(node)"},
+		{"web/scripts/check-api-usage.ts", "from 'typescript'"},
+		{"web/scripts/check-api-usage.ts", "'useQuery',"},
+		{"web/api-usage-allow.txt", "src/lib/auth.ts:raw-fetch"},
+		{"web/i18n-allow.txt", "Sign in to speedcheck"},
+		// The Taskfile and AGENTS.md name the framework they got.
+		{"Taskfile.yml", "The Vite + React dev server"},
+		{"Taskfile.yml", "desc: tsc + i18n coverage"},
+		{"AGENTS.md", "React 19 + react-router"},
+		{"AGENTS.md", "`App.tsx` holds"},
+		{"main.go", "web/src/lib/auth.ts loads the session"},
+		{"web/e2e/golden.spec.ts", "(App.tsx)"},
+	} {
+		if !strings.Contains(bare(want.file), want.s) {
+			t.Errorf("--frontend react: %s missing %q:\n%s", want.file, want.s, bare(want.file))
+		}
+	}
+	for _, unwanted := range []string{"svelte", "Svelte", "+layout", "+page"} {
+		for _, file := range []string{"web/package.json", "web/vite.config.ts", "web/src/App.tsx", "web/scripts/check-i18n.ts",
+			"web/scripts/check-api-usage.ts", "web/i18n-allow.txt", "web/api-usage-allow.txt", "Taskfile.yml", "AGENTS.md", "main.go"} {
+			if strings.Contains(bare(file), unwanted) {
+				t.Errorf("--frontend react: %s still mentions %q", file, unwanted)
+			}
+		}
+	}
+	// The allowlist pre-absolves exactly the copy in the page it names.
+	page := strings.Join(strings.Fields(bare("web/src/routes/Home.tsx")+" "+bare("web/src/routes/Login.tsx")), " ")
+	for _, line := range strings.Split(bare("web/i18n-allow.txt"), "\n") {
+		s := strings.TrimSpace(line)
+		if s == "" || strings.HasPrefix(s, "#") {
+			continue
+		}
+		if !strings.Contains(page, s) {
+			t.Errorf("i18n-allow.txt seeds %q, which neither Home.tsx nor Login.tsx contains", s)
+		}
+	}
+
+	// The design-system leg: the React DS and its theme live on depot under
+	// the same @connected scope as the Svelte one, so the registry files are
+	// the very same templates.
+	connected := render(dsConnected, true)
+	for _, want := range []struct{ file, s string }{
+		{"web/package.json", `"@connected/react-connected-design": "^`},
+		{"web/.npmrc", "@connected:registry=https://depot.connectedtech.dev/npm/\n"},
+		{"web/bunfig.toml", `"@connected" = "https://depot.connectedtech.dev/npm/"`},
+		{"web/src/app.css", `@import "@connected/tailwindcss-connected-design/themes/default.css";`},
+		{"web/src/app.css", `@source "../node_modules/@connected/react-connected-design/dist";`},
+		{"web/src/routes/Login.tsx", "from '@connected/react-connected-design/field'"},
+		{"web/src/routes/Login.tsx", "{(control) => ("},
+		{"web/src/App.tsx", "import { Toaster } from '@connected/react-connected-design/toast';"},
+		{"web/src/App.tsx", "<Toaster />"},
+	} {
+		if !strings.Contains(connected(want.file), want.s) {
+			t.Errorf("--frontend react --ds connected: %s missing %q:\n%s", want.file, want.s, connected(want.file))
+		}
+	}
+	if strings.Contains(connected("web/src/app.css"), `@import "tailwindcss"`) {
+		t.Errorf("the React theme already imports tailwindcss:\n%s", connected("web/src/app.css"))
+	}
+	if strings.Contains(bare("web/package.json"), "@connected/") || bare("web/.npmrc") != "" {
+		t.Error("--ds bare must not reach depot")
+	}
+	// No auth, no door and no store — and no allowlist entry for a file that
+	// does not exist.
+	public := render(dsBare, false)
+	if public("web/api-usage-allow.txt") != "" && strings.Contains(public("web/api-usage-allow.txt"), "src/lib/auth.ts") {
+		t.Error("a product without auth must not allowlist the session store")
+	}
+	if strings.Contains(public("web/src/App.tsx"), "auth guard") {
+		t.Error("a product without auth must not carry the guard")
+	}
+}
+
+// TestFrontendFlag: the usage errors, and the default. A typo'd value must
+// name both choices rather than silently scaffolding Svelte.
+func TestFrontendFlag(t *testing.T) {
+	for _, c := range []struct {
+		name, want string
+		args       []string
+	}{
+		{"unknown value", "unknown --frontend value", []string{"speedcheck", "--frontend", "vue"}},
+		{"without --web", "--frontend needs --web", []string{"speedcheck", "--no-web", "--frontend", "react"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var errW bytes.Buffer
+			if _, code := parseNewArgs(c.args, &errW); code != 2 {
+				t.Fatalf("exit %d, want 2:\n%s", code, errW.String())
+			}
+			if !strings.Contains(errW.String(), c.want) {
+				t.Errorf("error should say %q:\n%s", c.want, errW.String())
+			}
+		})
+	}
+	var errW bytes.Buffer
+	parsed, code := parseNewArgs([]string{"speedcheck"}, &errW)
+	if code != 0 || parsed.data.Frontend != feSvelte {
+		t.Errorf("--web defaults to the svelte frontend, got %q (exit %d)", parsed.data.Frontend, code)
+	}
+	parsed, _ = parseNewArgs([]string{"speedcheck", "--no-web"}, &errW)
+	if parsed.data.Frontend != "" {
+		t.Errorf("no web, no frontend, got %q", parsed.data.Frontend)
 	}
 }
 
@@ -1144,14 +1326,26 @@ func assertAPIUsageGated(t *testing.T, web string) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(planted)
-	if err := os.WriteFile(filepath.Join(planted, "+page.svelte"), []byte(
-		"<script lang=\"ts\">\n"+
-			"\timport { createQuery } from '@tanstack/svelte-query';\n"+
-			"\tconst zones = createQuery({\n"+
+	// The same sin in the frontend's own dialect: a React scaffold (App.tsx
+	// exists) gets a .tsx page, a Svelte one a +page.svelte.
+	file, body := "+page.svelte", "<script lang=\"ts\">\n"+
+		"\timport { createQuery } from '@tanstack/svelte-query';\n"+
+		"\tconst zones = createQuery({\n"+
+		"\t\tqueryKey: ['zones'],\n"+
+		"\t\tqueryFn: async () => (await fetch('/api/v1/zones')).json()\n"+
+		"\t});\n"+
+		"</script>\n\n<p>{zones.data}</p>\n"
+	if _, err := os.Stat(filepath.Join(web, "src", "App.tsx")); err == nil {
+		file, body = "Page.tsx", "import { useQuery } from '@tanstack/react-query';\n"+
+			"export function Page() {\n"+
+			"\tconst zones = useQuery({\n"+
 			"\t\tqueryKey: ['zones'],\n"+
 			"\t\tqueryFn: async () => (await fetch('/api/v1/zones')).json()\n"+
 			"\t});\n"+
-			"</script>\n\n<p>{zones.data}</p>\n"), 0o644); err != nil {
+			"\treturn <p>{String(zones.data)}</p>;\n"+
+			"}\n"
+	}
+	if err := os.WriteFile(filepath.Join(planted, file), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run()
@@ -1160,7 +1354,7 @@ func assertAPIUsageGated(t *testing.T, web string) {
 	}
 	// The failure has to be mechanical to act on: where, which rule, the escape.
 	for _, want := range []string{
-		"handrolled/+page.svelte", "raw-fetch", "hand-rolled-hook", "api-usage-allow.txt",
+		"handrolled/" + file, "raw-fetch", "hand-rolled-hook", "api-usage-allow.txt",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the API-usage failure must name %q so the fix needs no thinking:\n%s", want, out)

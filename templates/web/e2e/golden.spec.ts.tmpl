@@ -19,21 +19,22 @@ test('the shell renders and the API answers', async ({ page, request }) => {
 	const crashes: string[] = [];
 	page.on('pageerror', (err) => crashes.push(String(err)));
 
-	// The API half of the sandwich.
+	// The API half of the sandwich. The probe answer is public — the same
+	// claim main_test.go's boot smoke makes.
 	const health = await request.get('/healthz');
-{{- if .Auth}}
-	// auth.Protect guards ops too, so 401 IS the healthy anonymous answer —
-	// the same claim main_test.go's boot smoke makes.
-	expect(health.status()).toBe(401);
-{{- else}}
 	expect(health.ok()).toBeTruthy();
+{{- if .Auth}}
+	// auth.Protect guards everything that says WHO, so 401 IS the healthy
+	// anonymous answer from the identity route.
+	const me = await request.get('/auth/me');
+	expect(me.status()).toBe(401);
 {{- end}}
 
 {{- if .Auth}}
 
-	// The frontend half: the EMBEDDED build boots, hydrates, and +layout.ts
-	// sends an anonymous visitor to the login page rather than to a screen
-	// that can only 401.
+	// The frontend half: the EMBEDDED build boots, hydrates, and the auth
+	// guard ({{if eq .Frontend "react"}}App.tsx{{else}}+layout.ts{{end}}) sends an anonymous visitor to the login page
+	// rather than to a screen that can only 401.
 	await page.goto('/');
 	await expect(page).toHaveURL(/\/login$/);
 

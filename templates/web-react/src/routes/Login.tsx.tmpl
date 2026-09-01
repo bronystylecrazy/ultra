@@ -1,0 +1,111 @@
+// ─────────────── DEV LOGIN — REPLACE IT, DO NOT DELETE IT ───────────────
+// The minimum door into a product that enforces auth. Without a page like
+// this one every route answers 401 and the UI has no way to say who it is,
+// which is the worst kind of scaffold hole: everything builds, nothing is
+// reachable.
+//
+// It signs in through the scaffold-owned session store ($lib/auth) — the
+// cookie flavor, so the server sets an HttpOnly cookie, this tab holds
+// nothing, and a reload stays signed in. App.tsx's RequireSession sends
+// anonymous visitors here.
+//
+// Replace it with YOUR login (branding, SSO, "forgot password", whatever the
+// product needs) and keep App.tsx pointing at wherever it lives. Unlike
+// main.go's seeded user, this is not a block to delete: a product that
+// enforces auth needs SOME login page. A PUBLIC app (docs, marketing) deletes
+// the marked guard block in App.tsx and keeps this page.
+// ────────────────────────────────────────────────────────────────────────
+import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router';
+import { session } from '$lib/auth';
+{{- if eq .DS "connected"}}
+import { Button } from '@connected/react-connected-design/button';
+import { Field } from '@connected/react-connected-design/field';
+import { Input } from '@connected/react-connected-design/input';
+{{- end}}
+
+export function Login() {
+	const navigate = useNavigate();
+	const [username, setUsername] = useState('');
+	const [password, setPassword] = useState('');
+	const [error, setError] = useState('');
+	const [busy, setBusy] = useState(false);
+
+	async function submit(e: FormEvent) {
+		e.preventDefault();
+		setBusy(true);
+		setError('');
+		try {
+			// signIn() calls POST /auth/login and then /auth/me, so the store is
+			// populated before the next route renders.
+			await session.signIn({ username, password });
+			navigate('/');
+		} catch (err) {
+			// The problem's OWN message: the server renders it from the
+			// messages/*.toml catalogs in the request's locale
+			// (auth.invalid_credentials and friends are keys there). Never
+			// invent copy for a failure the API named.
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setBusy(false);
+		}
+	}
+
+{{- if eq .DS "connected"}}
+	return (
+		<form className="mx-auto flex w-full max-w-sm flex-col gap-L p-XL" onSubmit={submit}>
+			<h1 className="text-heading-S fg-primary">Sign in to {{.Name}}</h1>
+			<Field label="{{.Login.Username}}">
+				{(control) => (
+					<Input {...control} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+				)}
+			</Field>
+			{/* The error rides the password field: Field owns the a11y wiring, and an
+			    empty string is not an error. */}
+			<Field label="{{.Login.Password}}" error={error || undefined}>
+				{(control) => (
+					<Input
+						{...control}
+						type="password"
+						value={password}
+						onChange={(e) => setPassword(e.target.value)}
+						autoComplete="current-password"
+					/>
+				)}
+			</Field>
+			<Button type="submit" loading={busy}>
+				{{.Login.Submit}}
+			</Button>
+		</form>
+	);
+{{- else}}
+	return (
+		<form className="mx-auto flex w-full max-w-sm flex-col gap-4 p-6" onSubmit={submit}>
+			<h1 className="text-xl font-semibold">Sign in to {{.Name}}</h1>
+			<label className="flex flex-col gap-1">
+				{{.Login.Username}}
+				<input
+					className="rounded border px-2 py-1"
+					value={username}
+					onChange={(e) => setUsername(e.target.value)}
+					autoComplete="username"
+				/>
+			</label>
+			<label className="flex flex-col gap-1">
+				{{.Login.Password}}
+				<input
+					className="rounded border px-2 py-1"
+					type="password"
+					value={password}
+					onChange={(e) => setPassword(e.target.value)}
+					autoComplete="current-password"
+				/>
+			</label>
+			{error && <p className="text-red-600">{error}</p>}
+			<button className="rounded bg-black px-3 py-2 text-white disabled:opacity-50" type="submit" disabled={busy}>
+				{{.Login.Submit}}
+			</button>
+		</form>
+	);
+{{- end}}
+}
