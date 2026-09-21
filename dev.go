@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bronystylecrazy/ultrastack/di/diag"
+	"github.com/bronystylecrazy/di/diag"
 )
 
 // `ultra dev` is the whole inner loop in ONE terminal.

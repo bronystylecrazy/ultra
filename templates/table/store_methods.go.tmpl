@@ -8,9 +8,9 @@ package {{.Feature}}
 import (
 	"context"
 
-	"{{.GenImport}}"
-	"github.com/bronystylecrazy/ultrastack/di/diag"
+	"github.com/bronystylecrazy/di/diag"
 	"github.com/jackc/pgx/v5/pgtype"
+	"{{.GenImport}}"
 )
 
 // Create{{.Model}} stamps created_at from the injected clock — law 11, and the

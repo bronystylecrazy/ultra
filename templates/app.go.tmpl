@@ -4,11 +4,11 @@
 package app
 
 {{if .Features}}import (
-	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/di"
 
 {{range .Features}}	"{{$.Module}}/internal/app/{{.}}"
 {{end}})
-{{else}}import "github.com/bronystylecrazy/ultrastack/di"
+{{else}}import "github.com/bronystylecrazy/di"
 {{end}}
 
 // Modules is the feature list. Every feature is exactly one line — its Module

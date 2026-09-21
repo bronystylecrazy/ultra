@@ -3,6 +3,7 @@ module {{.Module}}
 go {{.GoVersion}}
 
 require (
+	github.com/bronystylecrazy/di {{.Kernel}}
 	github.com/bronystylecrazy/ultrastack {{.Version}}
 	github.com/bronystylecrazy/ultrastack/contrib {{.Version}}
 {{- if .MQTT}}
@@ -14,11 +15,13 @@ require (
 )
 
 // Building against a local framework checkout (fixing a preset, trying an
-// unreleased change)? Uncomment the set — they always move together, because
-// the kernel, contrib and the handler-standard modules ship as one version —
-// then `go mod tidy`. Comment them back out before you ship: a replace
-// directive never leaves your machine.
+// unreleased change)? Uncomment the set — contrib and the handler-standard
+// modules ship as one version with the framework — then `go mod tidy`. The
+// kernel is its own repository and moves on its own train, so uncomment its
+// line only when you are changing the kernel itself. Comment them back out
+// before you ship: a replace directive never leaves your machine.
 //
+// replace github.com/bronystylecrazy/di => ../di
 // replace github.com/bronystylecrazy/ultrastack => ../ultrastack
 // replace github.com/bronystylecrazy/ultrastack/contrib => ../ultrastack/contrib
 {{- if not .From}}

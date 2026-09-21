@@ -14,12 +14,12 @@ func briefFixture(t *testing.T) string {
 	return writeProduct(t, `package main
 
 import (
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/contrib/api"
 	"github.com/bronystylecrazy/ultrastack/contrib/i18n"
 	"github.com/bronystylecrazy/ultrastack/contrib/jobs"
 	"github.com/bronystylecrazy/ultrastack/contrib/pg"
 	"github.com/bronystylecrazy/ultrastack/contrib/ultra"
-	"github.com/bronystylecrazy/ultrastack/di"
 
 	"example.com/shop/internal/app"
 )

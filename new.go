@@ -28,6 +28,12 @@ var templates embed.FS
 // both.
 const scaffoldVersion = "v0.9.42"
 
+// scaffoldKernelVersion pins the DI kernel. It is a repository of its own
+// (github.com/bronystylecrazy/di) and versions on its own train, so it does
+// not ride scaffoldVersion; the drift test keeps it equal to the version
+// this checkout builds against.
+const scaffoldKernelVersion = "v0.1.0"
+
 // scaffoldGoVersion is the go directive for generated products. It must be
 // at least the framework's own, or the toolchain refuses the dependency.
 const scaffoldGoVersion = "1.27.0"
@@ -65,6 +71,7 @@ type scaffoldData struct {
 	Name      string // the product (also the binary and the log/module name)
 	Module    string // the Go module path
 	Version   string // framework version the product requires
+	Kernel    string // DI kernel version (its own module, its own train)
 	GoVersion string // the go directive
 	DB        bool   // --db:   pg + migrate + internal/db
 	Web       bool   // --web:  SPA seam + web/ skeleton (SvelteKit, or React under --frontend react)
@@ -310,6 +317,9 @@ func scaffold(dir string, d scaffoldData) error {
 		return err
 	}
 	d.fillPorts()
+	// The kernel pin belongs to this ultra build, never to the command line:
+	// filled here, every caller — cmdNew, the wizard, a test — agrees.
+	d.Kernel = scaffoldKernelVersion
 	// Defaulted here as well as in cmdNew so a direct caller — a test, an
 	// embedder — never renders a web/ whose app.css has no design system.
 	if d.Web && d.DS == "" {

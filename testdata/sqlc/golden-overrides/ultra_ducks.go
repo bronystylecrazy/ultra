@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/bronystylecrazy/ultrastack/di/diag"
+	"github.com/bronystylecrazy/di/diag"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"

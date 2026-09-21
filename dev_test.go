@@ -1277,7 +1277,10 @@ func TestKernelStaysZeroDependency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "list", "-deps", "./di/...", "./stack/...", "./cli/...")
+	// The kernel is its own module now, so it is listed by module path — and
+	// -deps still walks THROUGH it, which is what keeps its own zero-dependency
+	// promise under this gate rather than on trust.
+	cmd := exec.Command("go", "list", "-deps", kernelModule+"/...", "./stack/...", "./cli/...")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
@@ -1286,7 +1289,8 @@ func TestKernelStaysZeroDependency(t *testing.T) {
 	const self = "github.com/bronystylecrazy/ultrastack"
 	for _, pkg := range strings.Fields(string(out)) {
 		first, _, _ := strings.Cut(pkg, "/")
-		if !strings.Contains(first, ".") || strings.HasPrefix(pkg, self) {
+		if !strings.Contains(first, ".") || strings.HasPrefix(pkg, self) ||
+			pkg == kernelModule || strings.HasPrefix(pkg, kernelModule+"/") {
 			continue
 		}
 		t.Errorf("the kernel imports %s — di/stack/cli must stay standard-library only "+
@@ -1354,7 +1358,7 @@ func TestToolDependenciesAreReachableOnlyFromCmd(t *testing.T) {
 	}
 
 	tool := deps("./cmd/...")
-	importable := deps("./di/...", "./stack/...", "./cli/...", "./examples/...")
+	importable := deps(kernelModule+"/...", "./stack/...", "./cli/...", "./examples/...")
 	for _, dep := range toolDeps {
 		if from(tool, dep) == "" {
 			t.Errorf("%s is required by go.mod but no package under cmd/ imports it — drop the require line", dep)

@@ -326,7 +326,7 @@ func TestFromScaffoldShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(plain), `import "github.com/bronystylecrazy/ultrastack/di"`) ||
+	if !strings.Contains(string(plain), `import "github.com/bronystylecrazy/di"`) ||
 		!strings.Contains(string(plain), "var Modules = di.Group()") {
 		t.Errorf("a scaffold without --from must be byte-for-byte what it always was:\n%s", plain)
 	}

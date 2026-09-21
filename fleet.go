@@ -28,6 +28,10 @@ import (
 
 const frameworkModule = "github.com/bronystylecrazy/ultrastack"
 
+// kernelModule is the DI kernel — its own repository since the split, so it
+// is never frameworkModule + "/di".
+const kernelModule = "github.com/bronystylecrazy/di"
+
 type fleetProduct struct {
 	Dir         string `json:"dir"`
 	Module      string `json:"module"`

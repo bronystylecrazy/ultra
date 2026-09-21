@@ -1082,7 +1082,7 @@ var bundles = []struct{ Path, Name string }{
 	{contribModule + "/ultra", "New"},
 	{contribModule + "/fib", "Product"},
 	{frameworkModule + "/stack", "Product"},
-	{frameworkModule + "/di", "Options"},
+	{kernelModule, "Options"},
 }
 
 // rootRefusal is a root this command declines to edit — a SHAPE problem, not

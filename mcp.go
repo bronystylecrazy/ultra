@@ -22,7 +22,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bronystylecrazy/ultrastack/di/diag"
+	"github.com/bronystylecrazy/di/diag"
 )
 
 // mcpProtocolVersion is the fallback when the client requests a version we

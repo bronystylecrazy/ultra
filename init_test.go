@@ -12,7 +12,7 @@ import (
 const oldMain = `package main
 
 import (
-	"github.com/bronystylecrazy/ultrastack/di"
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/stack"
 )
 
@@ -26,9 +26,9 @@ func main() {}
 const fullMain = `package main
 
 import (
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/contrib/auth"
 	"github.com/bronystylecrazy/ultrastack/contrib/i18n"
-	"github.com/bronystylecrazy/ultrastack/di"
 	"github.com/bronystylecrazy/ultrastack/stack"
 )
 
@@ -47,9 +47,9 @@ func main() {}
 const apiMain = `package main
 
 import (
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/contrib/api"
 	"github.com/bronystylecrazy/ultrastack/contrib/i18n"
-	"github.com/bronystylecrazy/ultrastack/di"
 	"github.com/bronystylecrazy/ultrastack/stack"
 )
 

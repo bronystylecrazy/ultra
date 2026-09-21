@@ -619,7 +619,7 @@ func emitTable(t *tableGen) string {
 	std, ext := []string{"errors"}, []string{"github.com/jackc/pgx/v5/pgconn"}
 	if len(t.pages) > 0 {
 		std = append(std, "context", "time")
-		ext = append(ext, "github.com/bronystylecrazy/ultrastack/di/diag",
+		ext = append(ext, "github.com/bronystylecrazy/di/diag",
 			"github.com/google/uuid", "github.com/jackc/pgx/v5/pgtype")
 	}
 	b.WriteString("package gen\n\n")

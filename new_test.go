@@ -175,9 +175,11 @@ func TestGoModWiring(t *testing.T) {
 	for _, want := range []string{
 		"module github.com/acme/speedcheck",
 		"go " + scaffoldGoVersion,
+		"di " + scaffoldKernelVersion,
 		"ultrastack " + scaffoldVersion,
 		"ultrastack/contrib " + scaffoldVersion,
 		"ultrastack/web " + scaffoldVersion,
+		"// replace github.com/bronystylecrazy/di => ../di",
 		"// replace github.com/bronystylecrazy/ultrastack => ../ultrastack",
 		"// replace github.com/bronystylecrazy/ultrastack/contrib => ../ultrastack/contrib",
 		"// replace github.com/bronystylecrazy/ultrastack/web => ../ultrastack/web",
@@ -992,6 +994,27 @@ func TestScaffoldVersionTracksRelease(t *testing.T) {
 	if m[1] != scaffoldVersion {
 		t.Fatalf("scaffoldVersion is %s but the repo releases %s — bump the const "+
 			"in cmd/ultra/new.go with the release commit", scaffoldVersion, m[1])
+	}
+}
+
+// TestScaffoldKernelVersionTracksCheckout keeps scaffoldKernelVersion honest.
+// The kernel releases on its own train, so the source of truth is this
+// checkout's own requirement on it: a product must not be handed a kernel
+// the framework was never built against.
+func TestScaffoldKernelVersionTracksCheckout(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`github\.com/bronystylecrazy/di (v\d+\.\d+\.\d+)`).
+		FindStringSubmatch(string(b))
+	if m == nil {
+		t.Fatal("go.mod does not require github.com/bronystylecrazy/di")
+	}
+	if m[1] != scaffoldKernelVersion {
+		t.Fatalf("scaffoldKernelVersion is %s but this checkout builds against %s — "+
+			"bump the const in cmd/ultra/new.go with the kernel bump",
+			scaffoldKernelVersion, m[1])
 	}
 }
 

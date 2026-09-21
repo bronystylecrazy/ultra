@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bronystylecrazy/ultrastack/di/diag"
+	"github.com/bronystylecrazy/di/diag"
 )
 
 const requirementsDir = "requirements"

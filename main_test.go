@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -179,10 +180,16 @@ func TestVetFixRewritesFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("go.mod", "module fixprobe\n\ngo 1.27.0\n\nrequire github.com/bronystylecrazy/ultrastack v0.0.0\n\nreplace github.com/bronystylecrazy/ultrastack => "+root+"\n")
+	// The kernel is an ordinary dependency now, so the probe needs the same
+	// version (and go.sum lines) this checkout uses — copied, not fetched, so
+	// the test keeps working offline.
+	kver, ksum := kernelPin(t, root)
+	write("go.mod", "module fixprobe\n\ngo 1.27.0\n\nrequire (\n\tgithub.com/bronystylecrazy/di "+kver+
+		"\n\tgithub.com/bronystylecrazy/ultrastack v0.0.0\n)\n\nreplace github.com/bronystylecrazy/ultrastack => "+root+"\n")
+	write("go.sum", ksum)
 	write("main.go", `package main
 
-import "github.com/bronystylecrazy/ultrastack/di"
+import "github.com/bronystylecrazy/di"
 
 type Config struct{}
 type DB struct{}
@@ -254,4 +261,35 @@ func TestDiscoverFleet(t *testing.T) {
 	if _, bad := byMod["github.com/bronystylecrazy/ultrastack/contrib"]; bad {
 		t.Fatal("framework submodules are not products")
 	}
+}
+
+// kernelPin reads this checkout's requirement on the DI kernel and the go.sum
+// lines that go with it. A throwaway module built against the checkout must
+// agree with it on the kernel, and copying beats fetching: no network, no
+// version skew when the pin moves.
+func kernelPin(t *testing.T, root string) (version, sum string) {
+	t.Helper()
+	const mod = "github.com/bronystylecrazy/di"
+	b, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(regexp.QuoteMeta(mod) + ` (v\S+)`).FindStringSubmatch(string(b))
+	if m == nil {
+		t.Fatalf("%s: no requirement on %s", filepath.Join(root, "go.mod"), mod)
+	}
+	b, err = os.ReadFile(filepath.Join(root, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, ln := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(ln, mod+" "+m[1]+" ") || strings.HasPrefix(ln, mod+" "+m[1]+"/go.mod ") {
+			lines = append(lines, ln)
+		}
+	}
+	if len(lines) == 0 {
+		t.Fatalf("go.sum has no entries for %s %s", mod, m[1])
+	}
+	return m[1], strings.Join(lines, "\n") + "\n"
 }

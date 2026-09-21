@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bronystylecrazy/ultrastack/di/diag"
+	"github.com/bronystylecrazy/di/diag"
 )
 
 // codesText is the `ultra codes` registry: every code with its one-line

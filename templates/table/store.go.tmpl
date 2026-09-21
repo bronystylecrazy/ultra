@@ -3,10 +3,10 @@ package {{.Feature}}
 import (
 	"context"
 
-	"{{.GenImport}}"
-	"github.com/bronystylecrazy/ultrastack/di"
-	"github.com/bronystylecrazy/ultrastack/di/diag"
+	"github.com/bronystylecrazy/di"
+	"github.com/bronystylecrazy/di/diag"
 	"github.com/jackc/pgx/v5/pgtype"
+	"{{.GenImport}}"
 )
 
 // Store is this feature's whole reach into Postgres: the generated querier and

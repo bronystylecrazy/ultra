@@ -31,7 +31,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bronystylecrazy/ultrastack/di/diag"
+	"github.com/bronystylecrazy/di/diag"
 )
 
 // addKind says whether `ultra add` will insert a preset — and when it will

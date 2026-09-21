@@ -72,10 +72,10 @@ func assertGofmt(t *testing.T, src string) {
 const scaffoldRoot = `package main
 
 import (
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/cli"
 	"github.com/bronystylecrazy/ultrastack/contrib/api"
 	"github.com/bronystylecrazy/ultrastack/contrib/ultra"
-	"github.com/bronystylecrazy/ultrastack/di"
 
 	"example.com/shop/internal/app"
 )
@@ -155,11 +155,11 @@ func TestContribAddScaffoldRootInsertsBeforeModules(t *testing.T) {
 	want := `package main
 
 import (
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/cli"
 	"github.com/bronystylecrazy/ultrastack/contrib/api"
 	"github.com/bronystylecrazy/ultrastack/contrib/pg"
 	"github.com/bronystylecrazy/ultrastack/contrib/ultra"
-	"github.com/bronystylecrazy/ultrastack/di"
 
 	"example.com/shop/internal/app"
 )
@@ -315,8 +315,8 @@ func TestContribAddWhenAFeatureAlreadyImportsThePreset(t *testing.T) {
 		"internal/app/app.go": `package app
 
 import (
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/contrib/pg"
-	"github.com/bronystylecrazy/ultrastack/di"
 )
 
 func Modules() di.Reg { return di.Options(di.Provide(NewRepo)) }
@@ -401,9 +401,9 @@ func main() { cli.Run(ultra.New()) }
 		{"reassigned", `package main
 
 import (
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/cli"
 	"github.com/bronystylecrazy/ultrastack/contrib/ultra"
-	"github.com/bronystylecrazy/ultrastack/di"
 )
 
 var App = ultra.New()
@@ -472,8 +472,8 @@ func TestContribList(t *testing.T) {
 		"internal/app/app.go": `package app
 
 import (
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/contrib/pg"
-	"github.com/bronystylecrazy/ultrastack/di"
 )
 
 func Modules() di.Reg { return di.Options(di.Provide(func(db *pg.DB) *Repo { return &Repo{db} })) }
@@ -490,7 +490,7 @@ type Repo struct{ db *pg.DB }
 		"WIRED (2)",
 		`api  api.Use(api.Info{Title: "shop", Version: version})`,
 		"main.go:17",
-		"internal/app/app.go:4",
+		"internal/app/app.go:5", // the kernel import sorts above contrib/, so pg is the second spec
 		"AVAILABLE (20)",
 		"migrate    goose migrations, applied before anything serves",
 		"redis      the Redis client",

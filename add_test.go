@@ -15,11 +15,11 @@ import (
 const v3Root = `package main
 
 import (
+	"github.com/bronystylecrazy/di"
 	"github.com/bronystylecrazy/ultrastack/cli"
 	"github.com/bronystylecrazy/ultrastack/contrib/i18n"
 	"github.com/bronystylecrazy/ultrastack/contrib/migrate"
 	"github.com/bronystylecrazy/ultrastack/contrib/pg"
-	"github.com/bronystylecrazy/ultrastack/di"
 	"github.com/bronystylecrazy/ultrastack/stack"
 	"github.com/bronystylecrazy/ultrastack/web"
 
