@@ -67,6 +67,9 @@ func cmdSkill(args []string, out, errW io.Writer) int {
 		ultraTree().find("skill").help(errW)
 		return 2
 	}
+	// --check is the drift gate for a repo that cannot import this one: it
+	// names the stale files and fails, and never writes.
+	check := len(args) > 1 && args[1] == "--check"
 	root, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(errW, err)
@@ -90,6 +93,11 @@ func cmdSkill(args []string, out, errW io.Writer) int {
 		if got, err := os.ReadFile(path); err == nil && string(got) == want {
 			continue
 		}
+		if check {
+			fmt.Fprintln(out, "stale", rel)
+			changed++
+			continue
+		}
 		if err := os.WriteFile(path, []byte(want), 0o644); err != nil {
 			fmt.Fprintln(errW, err)
 			failVerdict(errW, "skill gen", err.Error())
@@ -101,6 +109,10 @@ func cmdSkill(args []string, out, errW io.Writer) int {
 	if changed == 0 {
 		verdict(errW, "skill gen", "references up to date")
 		return 0
+	}
+	if check {
+		failVerdict(errW, "skill gen", count(changed, "stale file")+" — run `ultra skill gen` to regenerate")
+		return 1
 	}
 	verdict(errW, "skill gen", "wrote "+count(changed, "file"))
 	return 0

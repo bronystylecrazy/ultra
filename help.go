@@ -698,8 +698,9 @@ product.`,
 						long: `Regenerate references/ — errors.md, and the go-doc and compiled-example
 marker blocks inside the hand-written prose.
 
-Run it from the repo root. The drift test gates it, so a doc block and the
+Run it from the framework repo root. The drift test gates it, so a doc block and the
 symbol it documents cannot disagree.`,
+						flags: []flagDoc{{"--check", "name the stale files and exit 1; write nothing"}},
 					},
 					{
 						name:  "install",

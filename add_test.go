@@ -88,13 +88,7 @@ func TestCuratedInfraIsOffered(t *testing.T) {
 // broker is embedded), and audit was unmarked though it declares ClickHouse.
 // Both fed a nudge that told readers to run a command with nothing to do.
 func TestPresetInfraFlagsMatchContrib(t *testing.T) {
-	root, err := filepath.Abs("../../contrib")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(root); err != nil {
-		t.Skip("no contrib tree beside this checkout")
-	}
+	root := frameworkDir(t, "contrib")
 	for _, p := range presets {
 		declares := false
 		entries, err := os.ReadDir(filepath.Join(root, p.Pkg))
@@ -464,10 +458,6 @@ func TestAddCovenant(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a product per preset; skipped in -short")
 	}
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	for _, name := range addOffers() {
 		t.Run(name, func(t *testing.T) {
@@ -498,11 +488,9 @@ func TestAddCovenant(t *testing.T) {
 				}
 				return string(b)
 			}
-			sh("mod", "edit",
-				"-replace="+modulePath+"="+repoRoot,
-				"-replace="+modulePath+"/contrib="+filepath.Join(repoRoot, "contrib"),
-				"-replace="+modulePath+"/web="+filepath.Join(repoRoot, "web"),
-				"-replace="+modulePath+"/mqtt="+filepath.Join(repoRoot, "mqtt"))
+			if r := checkoutReplaces(t); r != nil {
+				sh(r...)
+			}
 			// tidy is not optional here: a preset can pull modules the product
 			// has no go.sum entry for (report brings gopdf and excelize), which
 			// is exactly why the nudge names it.
@@ -525,10 +513,6 @@ func TestAddEndToEndBoots(t *testing.T) {
 	if testing.Short() {
 		t.Skip("boots a product against Postgres; skipped in -short")
 	}
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
 	d := testData("speedcheck", scaffoldData{DB: true, Auth: true})
 	dir := filepath.Join(t.TempDir(), d.Name)
 	if err := scaffold(dir, d); err != nil {
@@ -550,11 +534,9 @@ func TestAddEndToEndBoots(t *testing.T) {
 			t.Fatalf("go %s failed: %v\n%s", strings.Join(args, " "), err, b)
 		}
 	}
-	sh("mod", "edit",
-		"-replace="+modulePath+"="+repoRoot,
-		"-replace="+modulePath+"/contrib="+filepath.Join(repoRoot, "contrib"),
-		"-replace="+modulePath+"/web="+filepath.Join(repoRoot, "web"),
-		"-replace="+modulePath+"/mqtt="+filepath.Join(repoRoot, "mqtt"))
+	if r := checkoutReplaces(t); r != nil {
+		sh(r...)
+	}
 	sh("mod", "tidy")
 	// The whole product suite: TestWiring, TestBoot (which requires Postgres
 	// and skips itself without one), and the contract + infra drift gates.

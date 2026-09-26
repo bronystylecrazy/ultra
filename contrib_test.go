@@ -834,17 +834,14 @@ func TestContribRemoveNotWired(t *testing.T) {
 // The exceptions are named here with their reason, so a new one is a conscious
 // act rather than a silent divergence.
 func TestPresetCatalogMatchesContrib(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := frameworkDir(t, "contrib")
 	// Not presets, on purpose:
 	//   ultra/fib  product ROOTS — the bundle call `add` edits, not an argument
 	//   testkit    a test helper (testkit.Product(t, …)), never assembled
 	//   internal   not importable
 	skip := map[string]bool{"ultra": true, "fib": true, "testkit": true, "internal": true}
 
-	entries, err := os.ReadDir(filepath.Join(root, "contrib"))
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -853,7 +850,7 @@ func TestPresetCatalogMatchesContrib(t *testing.T) {
 		if !e.IsDir() || skip[e.Name()] {
 			continue
 		}
-		files, err := os.ReadDir(filepath.Join(root, "contrib", e.Name()))
+		files, err := os.ReadDir(filepath.Join(root, e.Name()))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -861,7 +858,7 @@ func TestPresetCatalogMatchesContrib(t *testing.T) {
 			if f.IsDir() || !strings.HasSuffix(f.Name(), ".go") || strings.HasSuffix(f.Name(), "_test.go") {
 				continue
 			}
-			b, err := os.ReadFile(filepath.Join(root, "contrib", e.Name(), f.Name()))
+			b, err := os.ReadFile(filepath.Join(root, e.Name(), f.Name()))
 			if err != nil {
 				t.Fatal(err)
 			}

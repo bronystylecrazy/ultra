@@ -14,10 +14,7 @@ import (
 // updated example) and the fix is always the same one command — no CI config,
 // just a failing test.
 func TestReferencesUpToDate(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := frameworkCheckout(t)
 	files, err := skillGen(root)
 	if err != nil {
 		t.Fatalf("skill gen failed: %v", err)
@@ -32,7 +29,7 @@ func TestReferencesUpToDate(t *testing.T) {
 	if len(stale) > 0 {
 		sort.Strings(stale)
 		t.Fatalf("generated references are out of date: %v\n"+
-			"run `ultra skill gen` (or `go run ./cmd/ultra skill gen`) from the repo root to regenerate.",
+			"run `ultra skill gen` from the framework repo root to regenerate.",
 			stale)
 	}
 }
@@ -64,10 +61,7 @@ var handWrittenGoBlocks = map[string]int{
 }
 
 func TestReferenceSnippetsAreCompiled(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := frameworkCheckout(t)
 	for name, want := range handWrittenGoBlocks {
 		src, err := os.ReadFile(filepath.Join(root, "references", name))
 		if err != nil {
@@ -75,7 +69,7 @@ func TestReferenceSnippetsAreCompiled(t *testing.T) {
 		}
 		if got := countHandWrittenGo(string(src)); got != want {
 			t.Errorf("references/%s: %d hand-written ```go blocks, pinned at %d\n"+
-				"convert the new snippet to a compiled example (see cmd/ultra/skillgen.go), "+
+				"convert the new snippet to a compiled example (see skillgen.go in github.com/bronystylecrazy/ultra), "+
 				"or bump the pin in handWrittenGoBlocks with a reason.", name, got, want)
 		}
 	}

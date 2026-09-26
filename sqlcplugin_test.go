@@ -17,7 +17,7 @@ import (
 
 // updateGolden rewrites the expected plugin output instead of comparing it.
 //
-//	go test ./cmd/ultra -run TestPluginGolden -update
+//	go test . -run TestPluginGolden -update
 var updateGolden = flag.Bool("update", false, "rewrite the sqlc plugin's golden files")
 
 // fixtureRequest is a REAL CodeGenRequest, captured by running sqlc v1.31.1

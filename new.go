@@ -31,7 +31,7 @@ const scaffoldVersion = "v0.9.42"
 // scaffoldKernelVersion pins the DI kernel. It is a repository of its own
 // (github.com/bronystylecrazy/di) and versions on its own train, so it does
 // not ride scaffoldVersion; the drift test keeps it equal to the version
-// this checkout builds against.
+// the framework builds against.
 const scaffoldKernelVersion = "v0.1.0"
 
 // scaffoldGoVersion is the go directive for generated products. It must be

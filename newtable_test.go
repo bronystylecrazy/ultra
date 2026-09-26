@@ -364,16 +364,11 @@ func TestNewTableCovenant(t *testing.T) {
 	if _, err := exec.LookPath("sqlc"); err != nil {
 		t.Skip("no sqlc on PATH, so the generated half was never exercised: " + err.Error())
 	}
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	// This binary IS the plugin the scaffolded sqlc.yaml names, so it has to
 	// be on PATH under that name before sqlc runs.
 	bin := t.TempDir()
-	build := exec.Command("go", "build", "-o", filepath.Join(bin, "ultra"), "./cmd/ultra")
-	build.Dir = repoRoot
+	build := exec.Command("go", "build", "-o", filepath.Join(bin, "ultra"), ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building the plugin: %v\n%s", err, out)
 	}
@@ -396,11 +391,9 @@ func TestNewTableCovenant(t *testing.T) {
 			t.Fatalf("%s %s failed: %v\n%s", name, strings.Join(args, " "), err, out)
 		}
 	}
-	sh("go", "mod", "edit",
-		"-replace="+modulePath+"="+repoRoot,
-		"-replace="+modulePath+"/contrib="+filepath.Join(repoRoot, "contrib"),
-		"-replace="+modulePath+"/web="+filepath.Join(repoRoot, "web"),
-		"-replace="+modulePath+"/mqtt="+filepath.Join(repoRoot, "mqtt"))
+	if r := checkoutReplaces(t); r != nil {
+		sh("go", r...)
+	}
 	sh("go", "mod", "tidy")
 
 	code, out, errW := runNewTable(t, dir, "notes", "body text not null", "--owned")

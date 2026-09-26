@@ -131,27 +131,3 @@ func TestRenderReleaseNotesBehaviorDetection(t *testing.T) {
 		t.Errorf("no warning without entries:\n%s", quiet.String())
 	}
 }
-
-// The runbook law, mechanically: every shipped notes file carries the
-// Behavior changes section — writing one without it is refusing to answer
-// the only question the file exists for.
-func TestReleasesCarryBehaviorChangesSection(t *testing.T) {
-	entries, err := os.ReadDir(filepath.Join("..", "..", "releases"))
-	if err != nil {
-		t.Fatalf("releases/ must exist at the repo root: %v", err)
-	}
-	seen := 0
-	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), "v") || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		seen++
-		body := readFile(t, filepath.Join("..", "..", "releases", e.Name()))
-		if !strings.Contains(body, "## Behavior changes") {
-			t.Errorf("%s has no ## Behavior changes section — the load-bearing part is mandatory", e.Name())
-		}
-	}
-	if seen == 0 {
-		t.Error("releases/ holds no vX.Y.Z.md files — the seed notes are missing")
-	}
-}

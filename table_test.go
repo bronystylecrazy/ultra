@@ -349,13 +349,7 @@ func TestVetMachineOutputStaysPure(t *testing.T) {
 // (TestReferencesUpToDate is the test that reports that, and a test that
 // quietly repaired the tree would hide it).
 func TestSkillGenVerdict(t *testing.T) {
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "references")); err != nil {
-		t.Skip("not in the repo")
-	}
+	root := frameworkCheckout(t)
 	files, err := skillGen(root)
 	if err != nil {
 		t.Skip("skill gen cannot run here:", err)

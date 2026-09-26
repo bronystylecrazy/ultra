@@ -12,7 +12,7 @@ import (
 // the live checkout, the manifest marks machine ownership, and --check
 // gates version skew.
 func TestSkillInstall(t *testing.T) {
-	root := repoRoot(t)
+	root := frameworkDir(t, "")
 	dir := t.TempDir()
 	gomod := "module example.com/p\n\ngo 1.24\n\nrequire github.com/bronystylecrazy/ultrastack v0.0.0\n\nreplace github.com/bronystylecrazy/ultrastack => " + root + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644); err != nil {
@@ -63,14 +63,4 @@ func TestSkillInstall(t *testing.T) {
 	if code := cmdSkillInstall([]string{"--force", dir2}, &out, &errW); code != 0 {
 		t.Fatalf("--force must replace: %s", errW.String())
 	}
-}
-
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	wd, _ := os.Getwd()
-	root := filepath.Dir(filepath.Dir(wd)) // cmd/ultra -> repo root
-	if _, err := os.Stat(filepath.Join(root, "SKILL.md")); err != nil {
-		t.Skip("repo root SKILL.md not found")
-	}
-	return root
 }

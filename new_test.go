@@ -978,11 +978,13 @@ func TestAuthGuardIsADeletableBlock(t *testing.T) {
 }
 
 // TestScaffoldVersionTracksRelease keeps scaffoldVersion honest: it is the
-// version a new product requires, so it must be the version the repo itself
-// releases. contrib/go.mod's requirement on the kernel is bumped by the
-// same release commit, which makes it the in-repo source of truth.
+// version a new product requires, so it must be the version the framework
+// releases. contrib/go.mod's requirement on the framework is bumped by the
+// same release commit, which makes it the source of truth — checked against
+// ULTRASTACK_DIR when set, else it only proves the pinned release agrees
+// with itself.
 func TestScaffoldVersionTracksRelease(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "contrib", "go.mod"))
+	b, err := os.ReadFile(filepath.Join(frameworkDir(t, "contrib"), "go.mod"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -993,16 +995,16 @@ func TestScaffoldVersionTracksRelease(t *testing.T) {
 	}
 	if m[1] != scaffoldVersion {
 		t.Fatalf("scaffoldVersion is %s but the repo releases %s — bump the const "+
-			"in cmd/ultra/new.go with the release commit", scaffoldVersion, m[1])
+			"in new.go with the framework release", scaffoldVersion, m[1])
 	}
 }
 
 // TestScaffoldKernelVersionTracksCheckout keeps scaffoldKernelVersion honest.
-// The kernel releases on its own train, so the source of truth is this
-// checkout's own requirement on it: a product must not be handed a kernel
+// The kernel releases on its own train, so the source of truth is the
+// framework's own requirement on it: a product must not be handed a kernel
 // the framework was never built against.
 func TestScaffoldKernelVersionTracksCheckout(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
+	b, err := os.ReadFile(filepath.Join(frameworkDir(t, ""), "go.mod"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1012,8 +1014,8 @@ func TestScaffoldKernelVersionTracksCheckout(t *testing.T) {
 		t.Fatal("go.mod does not require github.com/bronystylecrazy/di")
 	}
 	if m[1] != scaffoldKernelVersion {
-		t.Fatalf("scaffoldKernelVersion is %s but this checkout builds against %s — "+
-			"bump the const in cmd/ultra/new.go with the kernel bump",
+		t.Fatalf("scaffoldKernelVersion is %s but the framework builds against %s — "+
+			"bump the const in new.go with the kernel bump",
 			scaffoldKernelVersion, m[1])
 	}
 }
@@ -1088,10 +1090,6 @@ func TestScaffoldCovenant(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds three full products; skipped in -short")
 	}
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	for _, c := range combos {
 		t.Run(c.name, func(t *testing.T) {
@@ -1137,14 +1135,11 @@ func TestScaffoldCovenant(t *testing.T) {
 				}
 				t.Logf("%s %s\n%s", name, strings.Join(args, " "), out)
 			}
-			// Point the generated product at this checkout instead of the
-			// network — the same lines the go.mod comment describes. The web
-			// and mqtt modules live at the repo root beside contrib.
-			sh("go", "mod", "edit",
-				"-replace="+modulePath+"="+repoRoot,
-				"-replace="+modulePath+"/contrib="+filepath.Join(repoRoot, "contrib"),
-				"-replace="+modulePath+"/web="+filepath.Join(repoRoot, "web"),
-				"-replace="+modulePath+"/mqtt="+filepath.Join(repoRoot, "mqtt"))
+			// With ULTRASTACK_DIR, point the generated product at that checkout
+			// — the same lines the go.mod comment describes.
+			if r := checkoutReplaces(t); r != nil {
+				sh("go", r...)
+			}
 			sh("go", "mod", "tidy")
 			sh("go", "build", "./...")
 			sh("go", "test", "./...")

@@ -14,8 +14,8 @@ import (
 // the answer three different ways depending on how the binary came to exist,
 // and a stamp would be a fourth that is wrong whenever someone forgets it:
 //
-//  1. `go install …/cmd/ultra@v0.9.16` — the module version is in Main.Version.
-//  2. `go build ./cmd/ultra` in a checkout — no module version, but the VCS
+//  1. `go install github.com/bronystylecrazy/ultra@v0.9.16` — the module version is in Main.Version.
+//  2. `go build .` in a checkout — no module version, but the VCS
 //     settings carry the revision, and vcs.modified says whether the tree was
 //     clean. A hash plus -dirty is the honest answer for a local build.
 //  3. Neither (a tarball, `go run` from a cache) — devel, and saying so is

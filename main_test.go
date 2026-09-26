@@ -159,10 +159,9 @@ func TestVetFixRewritesFile(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs the analyzer binary")
 	}
-	root, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// ultravet's go.mod replaces the framework with ../, so it only builds
+	// from a checkout — never from the module cache.
+	root := frameworkCheckout(t)
 	// Build the real ultravet (its own module) and put it first on PATH.
 	binDir := t.TempDir()
 	build := exec.Command("go", "build", "-o", filepath.Join(binDir, "ultravet"), "./cmd/ultravet")
@@ -172,7 +171,7 @@ func TestVetFixRewritesFile(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// A throwaway product wired against this checkout: NewDB needs a *Config
+	// A throwaway product wired against the checkout: NewDB needs a *Config
 	// nothing provides, and exactly one local constructor supplies it.
 	mod := t.TempDir()
 	write := func(name, body string) {
@@ -181,7 +180,7 @@ func TestVetFixRewritesFile(t *testing.T) {
 		}
 	}
 	// The kernel is an ordinary dependency now, so the probe needs the same
-	// version (and go.sum lines) this checkout uses — copied, not fetched, so
+	// version (and go.sum lines) the checkout uses — copied, not fetched, so
 	// the test keeps working offline.
 	kver, ksum := kernelPin(t, root)
 	write("go.mod", "module fixprobe\n\ngo 1.27.0\n\nrequire (\n\tgithub.com/bronystylecrazy/di "+kver+
@@ -263,7 +262,7 @@ func TestDiscoverFleet(t *testing.T) {
 	}
 }
 
-// kernelPin reads this checkout's requirement on the DI kernel and the go.sum
+// kernelPin reads the framework checkout's requirement on the DI kernel and the go.sum
 // lines that go with it. A throwaway module built against the checkout must
 // agree with it on the kernel, and copying beats fetching: no network, no
 // version skew when the pin moves.

@@ -342,10 +342,6 @@ func TestFromRoundTripCovenant(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a full product; skipped in -short")
 	}
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
 	plan, err := planFrom("testdata/legacy.json")
 	if err != nil {
 		t.Fatal(err)
@@ -373,9 +369,9 @@ func TestFromRoundTripCovenant(t *testing.T) {
 		}
 		return out
 	}
-	sh("go", "mod", "edit",
-		"-replace="+modulePath+"="+repoRoot,
-		"-replace="+modulePath+"/contrib="+filepath.Join(repoRoot, "contrib"))
+	if r := checkoutReplaces(t); r != nil {
+		sh("go", r...)
+	}
 	sh("go", "mod", "tidy")
 	sh("go", "build", "./...")
 	sh("go", "test", "./...") // the covenant + the contract-drift bootstrap

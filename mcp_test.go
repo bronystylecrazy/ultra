@@ -181,10 +181,7 @@ func TestMCPGraphTool(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs go run against a real product")
 	}
-	dir, err := filepath.Abs("../../examples/speedwatch")
-	if err != nil {
-		t.Fatal(err)
-	}
+	dir := filepath.Join(frameworkDir(t, ""), "examples", "speedwatch")
 	out, err := toolGraph(json.RawMessage(fmt.Sprintf(`{"dir":%q}`, dir)))
 	if err != nil {
 		t.Fatalf("graph tool: %v", err)
