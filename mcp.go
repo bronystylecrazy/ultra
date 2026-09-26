@@ -387,7 +387,7 @@ func toolVet(raw json.RawMessage) (string, error) {
 	}
 	var buf strings.Builder
 	if code, _ := runAnalyzer(a.Dir, []string{"-json", "./..."}, &buf, &buf); code == -1 {
-		return "", fmt.Errorf("vet: could not run the analyzer (install ultravet, or set GOPRIVATE for `go run`)")
+		return "", fmt.Errorf("vet: could not run the analyzer (install ultravet, or check the network for `go run`)")
 	}
 	return buf.String(), nil
 }

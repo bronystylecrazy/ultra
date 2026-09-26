@@ -330,7 +330,7 @@ func short(fp string) string {
 func fleetVet(repos []fleetProduct, out, errW io.Writer) int {
 	vet, err := exec.LookPath("ultravet")
 	if err != nil {
-		fmt.Fprintln(errW, "ultra fleet vet: install the analyzer first:\n  GOPRIVATE=github.com/bronystylecrazy/* go install "+analyzerModule+"@latest")
+		fmt.Fprintln(errW, "ultra fleet vet: install the analyzer first:\n  go install "+analyzerModule+"@latest")
 		failVerdict(errW, "fleet vet", "the analyzer is not installed")
 		return 1
 	}

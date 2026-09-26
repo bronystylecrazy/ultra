@@ -159,32 +159,31 @@ func TestVetFixRewritesFile(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs the analyzer binary")
 	}
-	// ultravet's go.mod replaces the framework with ../, so it only builds
-	// from a checkout — never from the module cache.
-	root := frameworkCheckout(t)
-	// Build the real ultravet (its own module) and put it first on PATH.
+	// Install the real ultravet — the same @latest `ultra vet` falls back
+	// to — and put it first on PATH.
 	binDir := t.TempDir()
-	build := exec.Command("go", "build", "-o", filepath.Join(binDir, "ultravet"), "./cmd/ultravet")
-	build.Dir = filepath.Join(root, "analyzer")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build ultravet: %v\n%s", err, out)
+	install := exec.Command("go", "install", analyzerModule+"@latest")
+	install.Env = append(os.Environ(), "GOBIN="+binDir)
+	if out, err := install.CombinedOutput(); err != nil {
+		if offline(out) {
+			t.Skipf("installing ultravet needs the network: %s", out)
+		}
+		t.Fatalf("install ultravet: %v\n%s", err, out)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// A throwaway product wired against the checkout: NewDB needs a *Config
-	// nothing provides, and exactly one local constructor supplies it.
+	// A throwaway product on the kernel alone: NewDB needs a *Config nothing
+	// provides, and exactly one local constructor supplies it.
 	mod := t.TempDir()
 	write := func(name, body string) {
 		if err := os.WriteFile(filepath.Join(mod, name), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// The kernel is an ordinary dependency now, so the probe needs the same
-	// version (and go.sum lines) the checkout uses — copied, not fetched, so
-	// the test keeps working offline.
-	kver, ksum := kernelPin(t, root)
-	write("go.mod", "module fixprobe\n\ngo 1.27.0\n\nrequire (\n\tgithub.com/bronystylecrazy/di "+kver+
-		"\n\tgithub.com/bronystylecrazy/ultrastack v0.0.0\n)\n\nreplace github.com/bronystylecrazy/ultrastack => "+root+"\n")
+	// The probe pins the kernel this CLI builds against, go.sum lines copied
+	// rather than fetched.
+	kver, ksum := kernelPin(t, ".")
+	write("go.mod", "module fixprobe\n\ngo 1.27.0\n\nrequire github.com/bronystylecrazy/di "+kver+"\n")
 	write("go.sum", ksum)
 	write("main.go", `package main
 
@@ -262,8 +261,8 @@ func TestDiscoverFleet(t *testing.T) {
 	}
 }
 
-// kernelPin reads the framework checkout's requirement on the DI kernel and the go.sum
-// lines that go with it. A throwaway module built against the checkout must
+// kernelPin reads a module's requirement on the DI kernel and the go.sum
+// lines that go with it. A throwaway module built beside that module must
 // agree with it on the kernel, and copying beats fetching: no network, no
 // version skew when the pin moves.
 func kernelPin(t *testing.T, root string) (version, sum string) {

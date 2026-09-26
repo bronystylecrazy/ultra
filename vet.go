@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// analyzerModule is where the real analyzer lives — its own module, so
+// analyzerModule is where the real analyzer lives — its own repository, so
 // the kernel keeps zero dependencies; `ultra vet` is a thin delegator.
-const analyzerModule = "github.com/bronystylecrazy/ultrastack/analyzer/cmd/ultravet"
+const analyzerModule = "github.com/bronystylecrazy/ultravet/cmd/ultravet"
 
 // cmdVet runs the static analyzer over the current directory and ends with the
 // verdict line — the one thing a clean run used to leave out entirely. A clean
@@ -98,8 +98,7 @@ func speaksAnalyzerProtocol(name string, prefix ...string) bool {
 }
 
 // runVet delegates to the analyzer: an installed ultravet binary if
-// present, else `go run <module>@latest` (which needs GOPRIVATE + git
-// auth while the repo is private). dir, when set, is the working directory
+// present, else `go run <module>@latest`. dir, when set, is the working directory
 // (the mcp `vet` tool analyzes a named product); empty runs in place.
 //
 // Flags (-fix, --format) pass through after vetFlags normalizes them; the
@@ -152,7 +151,7 @@ func runAnalyzer(dir string, args []string, out, errW io.Writer) (code int, ran 
 		fmt.Fprintf(errW, `ultra vet: the ultravet on PATH is too old for this CLI (%s).
 
   it does not answer -V=full, so it predates the flags this CLI passes.
-  GOPRIVATE=github.com/bronystylecrazy/* go install %s@latest
+  go install %s@latest
 
 falling back to the pinned analyzer for this run.
 `, path, analyzerModule)
@@ -166,7 +165,7 @@ falling back to the pinned analyzer for this run.
 	}
 	fmt.Fprintf(errW, `ultra vet: the analyzer is not installed and could not be fetched.
 
-  GOPRIVATE=github.com/bronystylecrazy/* go install %s@latest
+  go install %s@latest
 
 then re-run: ultra vet ./...
 `, analyzerModule)

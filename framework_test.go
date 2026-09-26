@@ -36,7 +36,7 @@ func frameworkDir(t *testing.T, sub string) string {
 }
 
 // frameworkCheckout is the ULTRASTACK_DIR checkout, for the tests that only
-// mean something on one (the docs drift gate, a from-source ultravet).
+// mean something on one (the docs drift gate).
 func frameworkCheckout(t *testing.T) string {
 	t.Helper()
 	root := os.Getenv("ULTRASTACK_DIR")
