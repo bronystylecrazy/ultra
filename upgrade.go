@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"go/format"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,13 +31,70 @@ import (
 // tests, upgrade runs the refresh those gates name, reruns the suite, and
 // reports the artifacts it changed — the diff is the upgrade's blast radius.
 
-// upgradeModules are the pins upgrade trues — the kernel, the presets, and the
-// analyzer, whichever of them a go.mod actually requires. They ship from one
-// repository under one tag, so they move together or the build is a lie.
+// upgradeModules are the pins upgrade and fleet bump true — the framework and
+// its presets, whichever of them a go.mod actually requires. They ship from
+// one repository under one tag, so they move together or the build is a lie.
+// The kernel has its own train; tidy lifts it to what the release requires.
 var upgradeModules = []string{
 	frameworkModule,
 	frameworkModule + "/contrib",
-	frameworkModule + "/analyzer",
+	frameworkModule + "/web",
+	frameworkModule + "/mqtt",
+}
+
+// kernelSplit is the release the kernel left for its own module: an upgrade
+// to it or past it rewrites the old import path.
+var kernelSplit = semver{0, 9, 43}
+
+// rewriteKernelImports rewrites the pre-split kernel import path
+// (ultrastack/di → github.com/bronystylecrazy/di) in every Go file of the
+// module at dir, gofmt'd so the import block re-sorts, when to crosses the
+// split. Nested modules and testdata are not this module's code. It returns
+// each rewritten file's original bytes, for restore.
+func rewriteKernelImports(dir, to string) (map[string][]byte, error) {
+	orig := map[string][]byte{}
+	if v, ok := parseSemver(to); !ok || v.less(kernelSplit) {
+		return orig, nil
+	}
+	oldPath := []byte(`"` + frameworkModule + "/di")
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if p == dir {
+				return nil
+			}
+			if n := d.Name(); n == "testdata" || n == "vendor" || n == "node_modules" || strings.HasPrefix(n, ".") {
+				return fs.SkipDir
+			}
+			if _, err := os.Stat(filepath.Join(p, "go.mod")); err == nil {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".go") {
+			return nil
+		}
+		src, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		// `"…/ultrastack/di"` and `"…/ultrastack/di/diag"`, never `…/dicert`.
+		out := src
+		for _, tail := range []string{`"`, "/"} {
+			out = bytes.ReplaceAll(out, append(bytes.Clone(oldPath), tail...), []byte(`"`+kernelModule+tail))
+		}
+		if bytes.Equal(out, src) {
+			return nil
+		}
+		if formatted, err := format.Source(out); err == nil {
+			out = formatted
+		}
+		orig[p] = src
+		return os.WriteFile(p, out, 0o644)
+	})
+	return orig, err
 }
 
 // The committed derived artifacts, named exactly as the scaffolded gate in
@@ -275,7 +335,11 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 	sumPath := filepath.Join(dir, "go.sum")
 	origSum, sumErr := os.ReadFile(sumPath)
 	origDoc, docErr := os.ReadFile(filepath.Join(dir, contractFile))
+	var origGo map[string][]byte // kernel imports rewritten below
 	restore := func() {
+		for p, b := range origGo {
+			os.WriteFile(p, b, 0o644)
+		}
 		os.WriteFile(gomodPath, origMod, 0o644)
 		if sumErr == nil {
 			os.WriteFile(sumPath, origSum, 0o644)
@@ -285,7 +349,7 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 	}
 	fail := func(step, output string) int {
 		restore()
-		fmt.Fprintf(errW, "\n%s: %s failed at %s — go.mod and go.sum restored to %s\n\n%s\n",
+		fmt.Fprintf(errW, "\n%s: %s failed at %s — go.mod, go.sum and any rewritten imports restored to %s\n\n%s\n",
 			errCol.red("ultra upgrade"), step, to, from, headOf(output, 20))
 		// The behavior-changes section comes FIRST in the diagnosis: a listed
 		// change may be exactly what a failing test pins.
@@ -310,6 +374,13 @@ func cmdUpgrade(args []string, out, errW io.Writer) int {
 	}
 	if err := rewriteRequires(dir, to, upgradeModules); err != nil {
 		return fail("rewriting go.mod", err.Error())
+	}
+	if origGo, err = rewriteKernelImports(dir, to); err != nil {
+		return fail("rewriting kernel imports", err.Error())
+	}
+	if len(origGo) > 0 {
+		fmt.Fprintf(out, "\n  %s      %s: the kernel import is %s now\n",
+			col.yellow("rewrote"), count(len(origGo), "file"), kernelModule)
 	}
 	st := beginStep(errW, "go mod tidy")
 	if o, err := runIn(dir, "go", "mod", "tidy"); err != nil {

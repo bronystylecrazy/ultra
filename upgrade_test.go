@@ -334,7 +334,7 @@ func TestRequireEntry(t *testing.T) {
 	cases := []struct{ line, mod, ver string }{
 		{"require " + frameworkModule + " v0.1.0", frameworkModule, "v0.1.0"},
 		{"\t" + frameworkModule + "/contrib v0.2.0 // indirect", frameworkModule + "/contrib", "v0.2.0"},
-		{"\t" + frameworkModule + "/analyzer v0.3.0", frameworkModule + "/analyzer", "v0.3.0"},
+		{"\t" + frameworkModule + "/web v0.3.0", frameworkModule + "/web", "v0.3.0"},
 		{"// replace " + frameworkModule + " => ../ultrastack", "", ""},
 		{"replace " + frameworkModule + " => ../ultrastack", "", ""},
 		{"\t" + frameworkModule + " => ../ultrastack", "", ""},

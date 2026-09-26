@@ -185,7 +185,7 @@ func bumpOne(p fleetProduct, to string, target semver, push, pr, full bool) bump
 		r.Detail = "could not read go.mod"
 		return r
 	}
-	pins := modPins(string(data), bumpModules)
+	pins := modPins(string(data), upgradeModules)
 	if len(pins) == 0 {
 		r.Status = "already-current"
 		r.Detail = "no framework require to bump"
@@ -247,10 +247,16 @@ func bumpOne(p fleetProduct, to string, target semver, push, pr, full bool) bump
 		git(p.Dir, "branch", "-D", branch)
 	}
 
-	if err := rewriteRequires(p.Dir, to, bumpModules); err != nil {
+	if err := rewriteRequires(p.Dir, to, upgradeModules); err != nil {
 		revert()
 		r.Status = "FAILED"
 		r.Detail = "rewrite go.mod: " + err.Error()
+		return r
+	}
+	if _, err := rewriteKernelImports(p.Dir, to); err != nil {
+		revert()
+		r.Status = "FAILED"
+		r.Detail = "rewrite kernel imports: " + err.Error()
 		return r
 	}
 	if out, err := runIn(p.Dir, "go", "mod", "tidy"); err != nil {
@@ -315,11 +321,6 @@ func bumpOne(p fleetProduct, to string, target semver, push, pr, full bool) bump
 	}
 	return r
 }
-
-// bumpModules are the pins fleet bump moves: the kernel and its contrib
-// submodule, the two every product requires. (`ultra upgrade` adds the
-// analyzer — a fleet bump verifies a build, not a lint toolchain.)
-var bumpModules = []string{frameworkModule, frameworkModule + "/contrib"}
 
 // requireEntry decodes one go.mod line as a require entry for one of mods:
 // `<module> vX.Y.Z`, with or without a `require ` prefix, inside a block or

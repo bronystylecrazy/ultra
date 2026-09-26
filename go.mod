@@ -3,7 +3,7 @@ module github.com/bronystylecrazy/ultra
 go 1.27.0
 
 require (
-	github.com/bronystylecrazy/di v0.1.0
+	github.com/bronystylecrazy/di v0.2.0
 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
